@@ -1,0 +1,18 @@
+{
+  "name": "memo-agent-did-mainnet",
+  "version": "1.0.0-preprod",
+  "description": "Create and operate a locally controlled MEMO chain-985 Agent DID without exporting its private key.",
+  "author": {
+    "name": "MEMO Agent DID"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "MEMO Mainnet Agent DID",
+    "shortDescription": "Create and connect a local chain-985 Agent DID"
+  },
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/memo-agent-did-mainnet/SKILL.md"
+    }
+  }
+}

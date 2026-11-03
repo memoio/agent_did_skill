@@ -1,0 +1,13 @@
+{
+  "name": "memo-agent-did-mainnet-skill-bundle",
+  "version": "1.0.0-preprod",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run build --prefix skills/memo-agent-did-mainnet",
+    "test": "npm test --prefix skills/memo-agent-did-mainnet && node --test test/*.test.mjs",
+    "test:install": "node scripts/smoke-install.mjs",
+    "verify": "node scripts/verify-package.mjs",
+    "check": "npm run build && npm test && npm run verify && npm run test:install"
+  }
+}

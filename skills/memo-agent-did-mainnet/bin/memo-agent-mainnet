@@ -1,0 +1,48 @@
+#!/usr/bin/env node
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
+
+const mappings = {
+  environment: "MEMO_AGENT_MAINNET_ENVIRONMENT",
+  apiUrl: "MEMO_AGENT_MAINNET_API_URL",
+  apiOrigins: "MEMO_AGENT_MAINNET_API_ORIGINS",
+  installationId: "MEMO_AGENT_MAINNET_INSTALLATION_ID",
+  keyProvider: "MEMO_AGENT_MAINNET_KEY_PROVIDER",
+  chainId: "MEMO_AGENT_MAINNET_CHAIN_ID",
+  stateRoot: "MEMO_AGENT_MAINNET_HOME"
+};
+
+function loadNonSecretConfig() {
+  const defaultRoot = process.env.MEMO_AGENT_MAINNET_HOME || resolve(homedir(), ".memo-agent-mainnet");
+  const configPath = resolve(process.env.MEMO_AGENT_MAINNET_CONFIG_FILE || resolve(defaultRoot, "client.json"));
+  if (!existsSync(configPath)) return;
+  const parsed = JSON.parse(readFileSync(configPath, "utf8"));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("CLIENT_CONFIG_INVALID");
+  for (const key of Object.keys(parsed)) {
+    if (!(key in mappings)) throw new Error(`CLIENT_CONFIG_UNKNOWN_FIELD:${key}`);
+    if (/private|secret|master|token|passphrase|binding/i.test(key)) throw new Error("CLIENT_CONFIG_SECRET_FORBIDDEN");
+  }
+  for (const [key, environmentName] of Object.entries(mappings)) {
+    if (process.env[environmentName] || parsed[key] === undefined) continue;
+    const value = Array.isArray(parsed[key]) ? parsed[key].join(",") : String(parsed[key]);
+    process.env[environmentName] = value;
+  }
+}
+
+Promise.resolve().then(() => {
+  loadNonSecretConfig();
+  return import("../dist/cli.js");
+}).catch((error) => {
+  process.stdout.write(JSON.stringify({
+    schema: "memo.agent-cli-result/2",
+    ok: false,
+    action: "bootstrap",
+    requestId: null,
+    operationId: null,
+    data: null,
+    warnings: [],
+    error: { code: "CLI_BOOTSTRAP_FAILED", message: String(error?.message ?? error), retryable: false }
+  }) + "\n");
+  process.exitCode = 1;
+});

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "memo-agent-did-mainnet",
+  "version": "1.0.0-preprod",
+  "description": "Create and operate a locally controlled MEMO chain-985 Agent DID without exporting its private key.",
+  "author": {
+    "name": "MEMO Agent DID"
+  },
+  "keywords": ["agent-did", "identity", "eip-712", "erc-4337", "memo"],
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/memo-agent-did-mainnet/SKILL.md",
+      "interface": {
+        "displayName": "MEMO Mainnet Agent DID",
+        "shortDescription": "Create and connect a local chain-985 Agent DID",
+        "longDescription": "Create an Agent DID locally, keep its private key in the operating-system credential store, register through the MEMO Agent DID platform, and approve wallet management relationships.",
+        "developerName": "MEMO Agent DID",
+        "category": "Developer Tools",
+        "capabilities": ["Read", "Write"],
+        "defaultPrompt": [
+          "Use the MEMO Mainnet Agent DID skill to check secure storage, ensure this installation's local DID, and show only public identity status."
+        ],
+        "brandColor": "#4455DD"
+      }
+    }
+  }
+}

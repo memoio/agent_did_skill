@@ -1,0 +1,5 @@
+{
+  "name": "My Local Agent",
+  "description": "Agent identity managed locally with the MEMO Agent DID Skill",
+  "endpoints": []
+}

@@ -1,0 +1,16 @@
+node_modules/
+skills/memo-agent-did-mainnet/node_modules/
+skills/memo-agent-did-mainnet/*.tgz
+.data/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+keys.enc.json
+.installation-id
+.memo-agent-mainnet/
+pairing-handle*.txt
+*.tgz

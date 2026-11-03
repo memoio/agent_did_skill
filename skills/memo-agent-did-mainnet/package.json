@@ -1,0 +1,32 @@
+{
+  "name": "@memo/agent-did-mainnet-skill",
+  "version": "1.0.0-preprod",
+  "description": "Portable MEMO Mainnet chain-985 Agent DID skill and local signing runtime",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": { "node": ">=22.5.0" },
+  "bin": { "memo-agent-mainnet": "bin/memo-agent-mainnet" },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist", "src", "bin", "scripts", "examples", "SKILL.md", "skill.json",
+    "agents", "references", "schemas", "policy", "tsconfig.json", ".npmrc"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run test",
+    "setup": "node scripts/setup-client.mjs",
+    "setup:runtime": "node scripts/setup-runtime.mjs",
+    "check": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@napi-rs/keyring": "2.1.2",
+    "ethers": "6.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.12.0",
+    "typescript": "5.9.3",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}

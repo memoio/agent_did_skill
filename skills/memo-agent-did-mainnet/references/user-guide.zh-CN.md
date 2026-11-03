@@ -1,0 +1,283 @@
+# MEMO Mainnet Agent DID 新手使用手册
+
+## 先记住三件事
+
+1. Agent DID 由本地 Identity Key 的公开地址派生：`did:memo:agent:985:0x...`。
+2. 私钥永远留在本机，不能导出、不能发给平台、不能粘贴到 Agent 对话；平台只收到签名。
+3. 本地 DID、平台配对和链上管理关系是三件不同的事，不会因为安装 Skill 自动发生。
+
+## 一张流程图看懂全过程
+
+```text
+安装 Skill
+   │  不生成密钥、不联网
+   ▼
+identity ensure
+   │  本机生成并加密 Identity Key
+   ▼
+LOCAL_IDENTITY_READY
+   │  用户明确同意注册；Agent 签 EIP-712
+   ▼
+平台 Relayer → ERC-4337 UserOperation → MEMO chain 985
+   ▼
+ACTIVE（公开可解析的 Agent DID）
+   │
+   ├─ Pairing Grant → Console 关联钱包租户（不上链、不是管理权）
+   │
+   └─ 钱包签管理请求 + Agent 本地签同意
+          ▼
+      Management Registry 上链确认
+      （钱包成为 Agent 的 Primary Manager）
+```
+
+## 1. 查看本地 DID 状态
+
+把 `<Skill目录>` 替换成安装器输出的真实目录：
+
+```sh
+node "<Skill目录>/bin/memo-agent-mainnet" identity status --json
+```
+
+首次 ensure 后常见结果含义：
+
+```json
+{
+  "state": "LOCAL_IDENTITY_READY",
+  "registered": false,
+  "agentDid": "did:memo:agent:985:0x...",
+  "identityAccount": "0x...",
+  "publicKey": "0x...",
+  "identityKeyHandle": "identity_my-agent-01_v1",
+  "keyProvider": "os-keyring"
+}
+```
+
+- `LOCAL_IDENTITY_READY`：本地身份已经准备好，但链上还没有注册，其他人不能通过链上 Resolver 公开解析。
+- `REGISTRATION_SUBMITTED`：注册已提交，等待打包和最终确认。
+- `ACTIVE`：链上注册已确认，可以公开解析。
+- `SUSPENDED`：临时暂停。
+- `REVOKED`：永久吊销，不能恢复。
+- `QUARANTINED`：链、合约、环境、API origin 或密钥不一致；停止签名并人工排查。
+
+CLI 外层固定返回 `memo.agent-cli-result/2` envelope。先看顶层 `ok`；为 `false` 时按 `error.code` 处理。
+
+## 2. “把 DID 的密钥给出来”应该怎么做
+
+只给公开材料，不给私钥：
+
+- 可以分享：`agentDid`、`identityAccount`、`publicKey`、链上 Resolver 结果。
+- 一般不必分享：`identityKeyHandle`，它只是本机不透明引用，不是私钥。
+- 绝对不能分享：`keys.enc.json`、OS Keyring 内容、wrapping key、`MEMO_AGENT_MAINNET_MASTER_KEY`、任何明文私钥。
+
+本 Skill 故意没有 `private-key export` 命令。平台需要证明 DID 属于这个 Agent 时，应下发固定格式 challenge 或 EIP-712 intent，Agent 在本机签名，平台恢复签名地址；整个过程不传私钥。
+
+如果有人要求你把私钥、master key 或 `keys.enc.json` 发给他，请立即停止操作。
+
+## 3. 把本地 DID 注册到平台
+
+### 第一步：确认平台信息
+
+向平台管理员确认：
+
+- 环境是 `preprod` 还是 `production`；
+- API 与 Console 的真实 HTTPS 地址；
+- chain ID 是 `985`；
+- 本次注册已获允许。
+
+先检查：
+
+```sh
+node "<Skill目录>/bin/memo-agent-mainnet" doctor --json
+node "<Skill目录>/bin/memo-agent-mainnet" identity ensure --json
+node "<Skill目录>/bin/memo-agent-mainnet" identity status --json
+```
+
+### 第二步：检查公开 Profile
+
+发行包带有安全示例：`<Skill目录>/examples/profile.json`。Profile 是公开内容，不要放 API token、密码、DataDID、Manager DID、邮箱私密信息或恢复材料。
+
+先做不会联网和上链的 dry-run：
+
+```sh
+node "<Skill目录>/bin/memo-agent-mainnet" identity register \
+  --profile "<Skill目录>/examples/profile.json" \
+  --dry-run \
+  --json
+```
+
+### 第三步：明确授权注册
+
+注册属于 R2 操作。macOS/Linux 用单次环境授权：
+
+```sh
+MEMO_AGENT_MAINNET_ALLOW_R2=1 node "<Skill目录>/bin/memo-agent-mainnet" identity register \
+  --profile "<Skill目录>/examples/profile.json" \
+  --json
+```
+
+Windows PowerShell：
+
+```powershell
+$env:MEMO_AGENT_MAINNET_ALLOW_R2 = "1"
+node "<Skill目录>\bin\memo-agent-mainnet" identity register --profile "<Skill目录>\examples\profile.json" --json
+Remove-Item Env:MEMO_AGENT_MAINNET_ALLOW_R2
+```
+
+Skill 会依次完成：获取平台 chain config、在本地重建 digest、用 Identity Key 签名、提交给 Relayer、等待 UserOperation 被打包并达到 finality。Gas 由平台 Relayer Smart Account 支付，Agent 不向平台交私钥。
+
+注册失败时保留原 DID 和原 Identity Key。不要再次生成身份。网络恢复后重试或按 operation ID reconcile。
+
+注册成功后再次查看：
+
+```sh
+node "<Skill目录>/bin/memo-agent-mainnet" identity status --json
+```
+
+应看到 `state: ACTIVE`、`registered: true`、`identityRevision` 大于 0，以及锁定的 Registry 地址。
+
+## 4. 绑定 Console 钱包
+
+钱包地址不会写进 Agent DID 字符串。完整绑定有两层：
+
+- Pairing：把 Agent 关联到某个 Console 钱包租户，方便发现和发起请求；不上链，不等于管理权。
+- Management Relationship：钱包与 Agent 都签署管理 intent，确认后写入 Management Registry，才形成链上 Primary Manager 关系。
+
+### 第一步：创建一次性 Pairing Grant
+
+先创建只允许当前用户读取的目录：
+
+```sh
+mkdir -p "$HOME/.memo-agent-mainnet/share"
+chmod 700 "$HOME/.memo-agent-mainnet/share"
+```
+
+然后创建 15 分钟有效的 grant：
+
+```sh
+MEMO_AGENT_MAINNET_ALLOW_R2=1 node "<Skill目录>/bin/memo-agent-mainnet" pair create \
+  --max-scopes profile.update,instance.issue \
+  --max-term 30d \
+  --ttl 15m \
+  --share-handle-file "$HOME/.memo-agent-mainnet/share/pairing-handle.txt" \
+  --json
+```
+
+CLI 的 JSON 不会显示 `shareHandle`，只会返回 `shareHandleStored: true`。请由你本人打开该文件，把其中一行内容直接粘贴到可信 Console 的 Pairing Grant 输入框：
+
+- 不要让 Codex、Claude、DeepSeek 或其他 Agent 读取/显示这个文件；
+- 不要把它发到聊天、邮件、Issue 或日志；
+- redeem 成功后立即删除本地文件；
+- 它只能使用一次，且 15 分钟后失效。
+
+Windows 可先创建 `$HOME\.memo-agent-mainnet\share`，并把 `--share-handle-file` 指向其中的新文件。
+
+### 第二步：钱包签署管理请求
+
+在 Console 中：
+
+1. 连接预期的钱包；
+2. 确认钱包网络为 MEMO Mainnet `985`；
+3. 选择管理 scopes、期限和 visibility；
+4. 钱包签署 Management EIP-712 intent；
+5. 等待本地 Agent 审核。
+
+钱包签名本身不等于绑定完成。
+
+### 第三步：Agent 本地审核并签名
+
+先查看下一条请求：
+
+```sh
+node "<Skill目录>/bin/memo-agent-mainnet" agent-request next --wait-seconds 20 --json
+```
+
+核对返回的：
+
+- `managerAccount`；
+- `actionType`；
+- `scopesHash`；
+- `termEndsAt`；
+- `discoverable`；
+- `expectedRevision`；
+- 到期时间。
+
+确定无误后才批准：
+
+```sh
+MEMO_AGENT_MAINNET_ALLOW_R2=1 node "<Skill目录>/bin/memo-agent-mainnet" agent-request approve \
+  --id req_替换为真实请求ID \
+  --json
+```
+
+不同意则拒绝：
+
+```sh
+MEMO_AGENT_MAINNET_ALLOW_R2=1 node "<Skill目录>/bin/memo-agent-mainnet" agent-request reject \
+  --id req_替换为真实请求ID \
+  --reason declined \
+  --json
+```
+
+批准后，平台把 Agent 和钱包的签名包装成 ERC-4337 UserOperation。只有目标合约事件被索引并达到 finality，关系才算链上生效。
+
+## 5. 哪些操作会上链
+
+| 操作 | 是否上链 | 说明 |
+|---|---:|---|
+| 安装、配置、`doctor` | 否 | 不生成身份 |
+| `identity ensure/status` | 否 | 本地创建/查看身份 |
+| Agent session challenge | 否 | 平台短期认证 |
+| Agent DID 注册 | 是 | DID Registry |
+| Profile/Document 更新、暂停、恢复、吊销 | 是 | DID Registry |
+| Instance Credential 签发 | 否 | Agent 本地签发 |
+| Instance Credential 撤销 | 是 | 只上链撤销 hash |
+| Pairing Grant 创建/兑换 | 否 | 平台一次性关联 |
+| 管理关系激活、续期、结束、转让 | 是 | Management Registry |
+| DataDID/Gateway 权限 | 不属于本流程 | 与 Agent DID 管理权隔离 |
+
+## 6. 常用命令
+
+```sh
+# 公开解析（注册确认后）
+node "<Skill目录>/bin/memo-agent-mainnet" identity resolve did:memo:agent:985:0x... --verify --json
+
+# 更新公开 Profile
+MEMO_AGENT_MAINNET_ALLOW_R2=1 node "<Skill目录>/bin/memo-agent-mainnet" identity update-profile --profile profile.json --json
+
+# 暂停与恢复
+MEMO_AGENT_MAINNET_ALLOW_R2=1 node "<Skill目录>/bin/memo-agent-mainnet" identity suspend --json
+MEMO_AGENT_MAINNET_ALLOW_R2=1 node "<Skill目录>/bin/memo-agent-mainnet" identity resume --json
+
+# 查看本地实例
+node "<Skill目录>/bin/memo-agent-mainnet" instance list --json
+
+# 查询或恢复一笔操作
+node "<Skill目录>/bin/memo-agent-mainnet" operation status op_... --json
+node "<Skill目录>/bin/memo-agent-mainnet" operation reconcile op_... --json
+```
+
+永久吊销和 successor 是 R4 高风险操作，生产版必须接入独立审批服务；不要用普通 R2 授权尝试执行。
+
+## 7. 给主流 Agent 的推荐提示词
+
+Codex：
+
+```text
+$memo-agent-did-mainnet 先运行 doctor，再幂等确保本 installation 的本地 DID，最后只告诉我 DID、公开地址、状态和是否已注册。不要注册上链，不要创建 Pairing Grant，不要显示任何秘密或本地密钥文件。
+```
+
+Claude Code：
+
+```text
+/memo-agent-did-mainnet 先运行 doctor，再幂等确保本 installation 的本地 DID，最后只告诉我 DID、公开地址、状态和是否已注册。不要注册上链，不要创建 Pairing Grant，不要显示任何秘密或本地密钥文件。
+```
+
+DeepSeek-in-Codex：使用与 Codex 相同的 `$memo-agent-did-mainnet` 提示词。纯网页/API 模式不能安全执行本地身份流程。
+
+需要绑定时再单独说：
+
+```text
+使用 $memo-agent-did-mainnet 检查我的 Agent 是否已经 ACTIVE。先说明 Pairing 与链上 Management 的区别，展示拟申请的 scopes 和期限，得到我确认后再创建 Pairing Grant。shareHandle 必须写入受保护文件，不得出现在对话或工具输出中。
+```
+
+遇到错误请不要删除状态或重新 ensure 新身份，按 [故障排查](troubleshooting.zh-CN.md) 处理。
