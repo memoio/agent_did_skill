@@ -27,7 +27,7 @@ LOCAL_IDENTITY_READY
    ▼
 ACTIVE（公开可解析的 Agent DID）
    │
-   ├─ Pairing Grant → Console 关联钱包租户（不上链、不是管理权）
+   ├─ Invitation / Offer → Console 关联钱包租户（不上链、不是管理权）
    │
    └─ 钱包签管理请求 + Agent 本地签同意
           ▼
@@ -155,7 +155,7 @@ node "<Skill目录>/bin/memo-agent-mainnet" identity status --json
 - Pairing：把 Agent 关联到某个 Console 钱包租户，方便发现和发起请求；不上链，不等于管理权。
 - Management Relationship：钱包与 Agent 都签署管理 intent，确认后写入 Management Registry，才形成链上 Primary Manager 关系。
 
-### 第一步：创建一次性 Pairing Grant
+### 第一步：二选一完成 Pairing
 
 先创建只允许当前用户读取的目录：
 
@@ -164,25 +164,36 @@ mkdir -p "$HOME/.memo-agent-mainnet/share"
 chmod 700 "$HOME/.memo-agent-mainnet/share"
 ```
 
-然后创建 15 分钟有效的 grant：
+方式 A（平台发起）：在 Console 生成并下载 Platform Invitation 文件，然后把文件路径交给本地 Agent 执行：
 
 ```sh
-MEMO_AGENT_MAINNET_ALLOW_R2=1 node "<Skill目录>/bin/memo-agent-mainnet" pair create \
-  --max-scopes profile.update,instance.issue \
-  --max-term 30d \
-  --ttl 15m \
-  --share-handle-file "$HOME/.memo-agent-mainnet/share/pairing-handle.txt" \
+MEMO_AGENT_MAINNET_ALLOW_R2=1 node "<Skill目录>/bin/memo-agent-mainnet" pair invitation accept \
+  --invitation-file "$HOME/.memo-agent-mainnet/share/platform-invitation.memo-pair.json" \
+  --profile "<Skill目录>/examples/profile.json" \
   --json
 ```
 
-CLI 的 JSON 不会显示 `shareHandle`，只会返回 `shareHandleStored: true`。请由你本人打开该文件，把其中一行内容直接粘贴到可信 Console 的 Pairing Grant 输入框：
+方式 B（Agent 发起）：让 Agent 自动注册（如尚未注册）并生成 15 分钟有效的 Offer 文件，再在 Console 上传：
 
-- 不要让 Codex、Claude、DeepSeek 或其他 Agent 读取/显示这个文件；
-- 不要把它发到聊天、邮件、Issue 或日志；
-- redeem 成功后立即删除本地文件；
-- 它只能使用一次，且 15 分钟后失效。
+```sh
+MEMO_AGENT_MAINNET_ALLOW_R2=1 node "<Skill目录>/bin/memo-agent-mainnet" pair offer create \
+  --offer-file "$HOME/.memo-agent-mainnet/share/agent-offer.memo-pair.json" \
+  --max-scopes profile.update,instance.issue \
+  --max-term 30d \
+  --ttl 15m \
+  --profile "<Skill目录>/examples/profile.json" \
+  --json
+```
 
-Windows 可先创建 `$HOME\.memo-agent-mainnet\share`，并把 `--share-handle-file` 指向其中的新文件。
+`--profile` 可以省略：Skill 会依次使用显式 Profile、上次成功保存的快照、最小“未命名 Agent”Profile。两种命令都会使用同一 Identity Key 自动完成必要的 DID 注册并等待 finality；不会生成第二个 DID。
+
+- Invitation/Offer 文件包含一次性 handle，只能交给可信平台或 Skill 命令，不能打印内容；
+- 不要把文件内容发到聊天、邮件、Issue 或日志，也不要提交 Git；
+- Offer 使用独占新建和 `0600` 权限；Invitation 必须是当前用户拥有的普通文件，符号链接会被拒绝；
+- CLI JSON 只显示 exchange ID、状态、DID、operation 和确认信息，不回显 handle；
+- 可用 `pair status <exchange-id>`、`pair resume <exchange-id>`、`pair cancel <exchange-id>` 查询、续跑或取消。
+
+旧 `pair create` 已停用并返回 `PAIRING_V1_REMOVED`。Pairing 完成后平台会自动创建管理草稿，但钱包尚未获得链上管理权。
 
 ### 第二步：钱包签署管理请求
 
@@ -244,7 +255,7 @@ MEMO_AGENT_MAINNET_ALLOW_R2=1 node "<Skill目录>/bin/memo-agent-mainnet" agent-
 | Profile/Document 更新、暂停、恢复、吊销 | 是 | DID Registry |
 | Instance Credential 签发 | 否 | Agent 本地签发 |
 | Instance Credential 撤销 | 是 | 只上链撤销 hash |
-| Pairing Grant 创建/兑换 | 否 | 平台一次性关联 |
+| Invitation/Offer Pairing | 否 | 平台一次性关联并创建管理草稿 |
 | 管理关系激活、续期、结束、转让 | 是 | Management Registry |
 | DataDID/Gateway 权限 | 不属于本流程 | 与 Agent DID 管理权隔离 |
 
@@ -296,7 +307,7 @@ DeepSeek-in-Codex：使用与 Codex 相同的 `$memo-agent-did-mainnet` 提示�
 需要绑定时再单独说：
 
 ```text
-使用 $memo-agent-did-mainnet 检查我的 Agent 是否已经 ACTIVE。先说明 Pairing 与链上 Management 的区别，展示拟申请的 scopes 和期限，得到我确认后再创建 Pairing Grant。shareHandle 必须写入受保护文件，不得出现在对话或工具输出中。
+使用 $memo-agent-did-mainnet 检查我的 Agent 状态，先说明 Pairing 与链上 Management 的区别。若我提供 Platform Invitation 文件，确认后用 pair invitation accept；若由 Agent 发起，展示 max scopes、期限和 Offer 输出路径，确认后用 pair offer create。不得读取或显示文件里的 handle。
 ```
 
 遇到错误请不要删除状态或重新 ensure 新身份，按 [故障排查](troubleshooting.zh-CN.md) 处理。

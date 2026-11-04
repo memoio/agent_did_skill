@@ -1,6 +1,6 @@
 {
   "name": "@memo/agent-did-mainnet-skill",
-  "version": "1.0.0-preprod",
+  "version": "2.0.0-preprod",
   "description": "Portable MEMO Mainnet chain-985 Agent DID skill and local signing runtime",
   "license": "UNLICENSED",
   "type": "module",

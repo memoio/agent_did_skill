@@ -72,18 +72,36 @@ Challenge signing accepts only the declared `AuthChallenge` schema, a short time
 
 ## Pairing and management
 
-After registration, create a once-only platform Pairing Grant:
+Pairing v2 supports two directions. A Platform Invitation is downloaded by the wallet user and accepted by the Agent:
 
 ```sh
-bin/memo-agent-mainnet pair create \
-  --max-scopes profile.update,instance.issue \
-  --max-term 30d \
-  --ttl 15m \
-  --share-handle-file /path/to/pairing-handle.txt \
+bin/memo-agent-mainnet pair invitation accept \
+  --invitation-file /path/to/platform-invitation.memo-pair.json \
+  --profile /path/to/profile.json \
   --json
 ```
 
-The CLI writes the `shareHandle` to a new mode-`0600` file and redacts it from the JSON envelope. Open that file yourself and deliver its value directly to the trusted Console redemption field. Never ask an Agent to read or display the file. The handle is bearer material, becomes unusable after redemption, and the platform stores only its SHA-256 hash.
+The Skill verifies the file, claims it through an Agent session, registers the existing local DID if needed, waits for Registry finality, and then completes the off-chain binding. Alternatively, the Agent creates an Offer for wallet import:
+
+```sh
+bin/memo-agent-mainnet pair offer create \
+  --offer-file /path/to/agent-offer.memo-pair.json \
+  --max-scopes profile.update,instance.issue \
+  --max-term 30d \
+  --ttl 15m \
+  --profile /path/to/profile.json \
+  --json
+```
+
+`--profile` is optional: an explicit file wins, then a persisted snapshot, then a minimal “Unnamed Agent” profile. Offer output uses exclusive creation and mode `0600`; Invitation input must be a current-user-owned regular file, never a symlink. Both files contain a secret handle. Never print, paste, log, or commit their contents. The JSON envelope returns only exchange ID, state, DID, operation/finality fields, and the output path.
+
+```sh
+bin/memo-agent-mainnet pair status poff_... --json
+bin/memo-agent-mainnet pair resume pinv_... --json
+bin/memo-agent-mainnet pair cancel poff_... --json
+```
+
+The removed `pair create` command fails with `PAIRING_V1_REMOVED`. Pairing itself is off-chain and creates a management draft; it does not grant management authority.
 
 The Console wallet creates and signs a management intent. The Agent polls without disclosing its Identity Key:
 

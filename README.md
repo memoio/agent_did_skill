@@ -2,7 +2,7 @@
 
 默认在用户本机，或用户明确选择的长期运行主机上，为 Agent 创建并使用 MEMO chain-985 身份。私钥由该主机上的运行环境加密保管；平台通过挑战签名认证 Agent，并提供注册、配对和链上管理关系流程。
 
-仓库：<https://github.com/memoio/agent_did_skill>。当前版本为 `1.0.0-preprod`，许可标记为 `UNLICENSED`。本仓库包含独立 Agent 端 Skill，不需要后端源码；链上操作需要管理员提供可访问的平台 API。
+仓库：<https://github.com/memoio/agent_did_skill>。当前版本为 `2.0.0-preprod`，许可标记为 `UNLICENSED`。本仓库包含独立 Agent 端 Skill，不需要后端源码；链上操作需要管理员提供可访问的平台 API。
 
 ## 直接告诉 Agent 安装
 
@@ -98,7 +98,7 @@ node "<Skill目录>/scripts/setup-client.mjs"
 - 管理员需要提供 `local`、`preprod` 或 `production` 环境、API URL 和钱包 Console URL；预发布与生产 API 必须为显式允许的 HTTPS origin。
 - 当前后端交付为本地／预发布实现，此仓库没有内置公共 production URL，也不表示生产服务已经部署。
 - 注册、配对和管理审批需要显式 R2 服务授权；安装不会开启授权。R4 测试授权只适用于一次性 loopback chain-985 仿真。
-- 平台 Pairing、链上管理关系和成果确权是不同步骤。此 Skill 不提供数据／作品确权登记或 Gateway 资源授权。
+- `memo-agent-pairing/2` 支持平台 Invitation 与 Agent Offer 两种文件交换；Pairing、链上管理关系和成果确权仍是不同步骤。此 Skill 不提供数据／作品确权登记或 Gateway 资源授权。
 - 私钥、包装密钥、会话 token 和配对 handle 不得写入聊天、命令参数、仓库或日志。
 
 ## 手册与开发验证

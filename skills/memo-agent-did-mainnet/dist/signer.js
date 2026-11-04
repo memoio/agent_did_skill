@@ -77,13 +77,6 @@ export const ACTION_REGISTRY = {
         { name: "issuedAt", type: "uint64" },
         { name: "expiresAt", type: "uint64" },
     ],
-    PairingGrant: [
-        { name: "agentDid", type: "string" },
-        { name: "tokenHash", type: "bytes32" },
-        { name: "maxScopesHash", type: "bytes32" },
-        { name: "maxTermSeconds", type: "uint64" },
-        { name: "expiresAt", type: "uint64" },
-    ],
     ManagementRequest: [
         { name: "requestId", type: "string" },
         { name: "relationshipId", type: "string" },
@@ -285,6 +278,13 @@ export class LocalKmsSigner {
         file.entries.push({ handle, kind: "secret", ...this.encryptFor(file, value), createdAt: new Date().toISOString() });
         this.write(file);
         return handle;
+    }
+    readSecret(handle) {
+        const file = this.read();
+        const entry = file.entries.find((item) => item.handle === handle && item.kind === "secret");
+        if (!entry)
+            throw new AgentError("KEY_NOT_FOUND", "Secret handle was not found");
+        return this.decryptFrom(file, entry);
     }
     destroy(handle) {
         const file = this.read();

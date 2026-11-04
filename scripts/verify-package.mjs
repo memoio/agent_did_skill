@@ -10,10 +10,20 @@ const required = [
   "SKILL.md", "package.json", "package-lock.json", "bin/memo-agent-mainnet",
   "dist/index.js", "dist/cli.js", "scripts/setup-runtime.mjs", "scripts/setup-client.mjs", "references/installation.zh-CN.md",
   "references/user-guide.zh-CN.md", "references/troubleshooting.zh-CN.md",
+  "schemas/pairing-package.schema.json",
 ];
 for (const path of required) accessSync(resolve(skill, path), constants.R_OK);
 
 const manifest = JSON.parse(readFileSync(resolve(skill, "package.json"), "utf8"));
+const skillManifest = JSON.parse(readFileSync(resolve(skill, "skill.json"), "utf8"));
+if (manifest.version !== "2.0.0-preprod" || skillManifest.version !== manifest.version
+  || skillManifest.pairingProtocolVersion !== "memo-agent-pairing/2") {
+  throw new Error("PAIRING_V2_VERSION_MISMATCH");
+}
+for (const capability of ["pairing.invitation.accept", "pairing.offer.create", "pairing.status", "pairing.resume", "pairing.cancel"]) {
+  if (!skillManifest.capabilities?.includes(capability)) throw new Error(`PAIRING_V2_CAPABILITY_MISSING:${capability}`);
+}
+if (skillManifest.capabilities?.includes("pairing.create")) throw new Error("PAIRING_V1_CAPABILITY_FORBIDDEN");
 if (manifest.private === true) throw new Error("STANDALONE_PACKAGE_MUST_NOT_BE_PRIVATE");
 if (manifest.dependencies?.ethers !== "6.17.0" || manifest.dependencies?.["@napi-rs/keyring"] !== "2.1.2") {
   throw new Error("RUNTIME_DEPENDENCIES_NOT_PINNED");

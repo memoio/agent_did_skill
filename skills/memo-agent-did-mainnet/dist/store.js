@@ -18,7 +18,8 @@ export class Store {
         identity_key_handle TEXT NOT NULL, identity_account TEXT NOT NULL, public_key TEXT NOT NULL,
         last_identity_revision INTEGER NOT NULL, state TEXT NOT NULL, profile_hash TEXT,
         registry_address TEXT, management_registry_address TEXT, api_url TEXT,
-        key_provider TEXT, default_instance_state TEXT, deployment_environment TEXT
+        key_provider TEXT, default_instance_state TEXT, deployment_environment TEXT,
+        local_profile_json TEXT
       );
       CREATE TABLE IF NOT EXISTS instance_keys(
         instance_id TEXT PRIMARY KEY, name TEXT NOT NULL, key_handle TEXT UNIQUE NOT NULL,
@@ -32,6 +33,11 @@ export class Store {
       CREATE TABLE IF NOT EXISTS pairing_grants(
         pairing_grant_id TEXT PRIMARY KEY, token_secret_handle TEXT NOT NULL, token_hash TEXT NOT NULL,
         state TEXT NOT NULL, expires_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS pairing_exchanges(
+        exchange_id TEXT PRIMARY KEY, kind TEXT NOT NULL, secret_handle TEXT NOT NULL,
+        package_json TEXT NOT NULL, state TEXT NOT NULL, registration_operation_id TEXT,
+        expires_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS management_requests(
         request_id TEXT PRIMARY KEY, manager_account TEXT NOT NULL, canonical_payload_hash TEXT NOT NULL,
@@ -62,7 +68,8 @@ export class Store {
           identity_key_handle TEXT NOT NULL, identity_account TEXT NOT NULL, public_key TEXT NOT NULL,
           last_identity_revision INTEGER NOT NULL, state TEXT NOT NULL, profile_hash TEXT,
           registry_address TEXT, management_registry_address TEXT, api_url TEXT,
-          key_provider TEXT, default_instance_state TEXT, deployment_environment TEXT
+          key_provider TEXT, default_instance_state TEXT, deployment_environment TEXT,
+          local_profile_json TEXT
         );
         INSERT INTO installations(installation_id,agent_did,network,identity_key_handle,identity_account,public_key,
           last_identity_revision,state,profile_hash,registry_address,management_registry_address,api_url,key_provider)
@@ -80,6 +87,8 @@ export class Store {
             this.db.exec("ALTER TABLE installations ADD COLUMN default_instance_state TEXT");
         if (!names.has("deployment_environment"))
             this.db.exec("ALTER TABLE installations ADD COLUMN deployment_environment TEXT");
+        if (!names.has("local_profile_json"))
+            this.db.exec("ALTER TABLE installations ADD COLUMN local_profile_json TEXT");
         this.db.exec("UPDATE installations SET state='LOCAL_IDENTITY_READY' WHERE state='LOCAL_KEY_CREATED'");
     }
     transaction(work) {

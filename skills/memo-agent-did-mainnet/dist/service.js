@@ -1,6 +1,6 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { keccak256, TypedDataEncoder, verifyTypedData } from "ethers";
+import { getAddress, keccak256, TypedDataEncoder, verifyTypedData } from "ethers";
 import { CHAIN_ID } from "./config.js";
 import { AgentError } from "./errors.js";
 import { canonicalHash, canonicalize, sha256, assertExactFields } from "./canonical.js";
@@ -10,6 +10,18 @@ import { ACTION_REGISTRY, LocalKmsSigner, TYPED_DOMAIN } from "./signer.js";
 import { Store } from "./store.js";
 const DID_PATTERN = /^did:memo:agent:(\d+):(0x[0-9a-f]{40})$/;
 const MANAGER_PATTERN = /^eip155:(\d+):(0x[0-9a-f]{40})$/;
+const PAIRING_SCHEMA = "memo.agent-pairing-package/2";
+const PAIRING_HANDLE = /^memo-pair-v2\.((?:pinv|poff)_[A-Za-z0-9_-]{12,100})\.([A-Za-z0-9_-]{40,})$/;
+const INVITATION_FIELDS = [
+    "schema", "kind", "exchangeId", "platformOrigin", "environment", "chainId", "didRegistry",
+    "managementRegistry", "handle", "issuedAt", "expiresAt", "managerAccount", "requestedScopes",
+    "requestedTermSeconds", "visibility",
+];
+const OFFER_FIELDS = [
+    "schema", "kind", "exchangeId", "platformOrigin", "environment", "chainId", "didRegistry",
+    "managementRegistry", "handle", "issuedAt", "expiresAt", "agentDid", "identityAccount", "profileHash",
+    "maxScopes", "maxTermSeconds",
+];
 const MANAGEMENT_FIELDS = [
     "requestId", "relationshipId", "agentDid", "managerAccount", "managementScopes",
     "issuedAt", "expiresAt", "termEndsAt", "visibility", "requestVersion",
@@ -33,6 +45,7 @@ function managementProofPayload(request) {
     };
 }
 function now() { return Math.floor(Date.now() / 1000); }
+function pairingTokenHash(handle) { return createHash("sha256").update(handle).digest("hex"); }
 function asObject(value, name = "value") {
     if (!value || typeof value !== "object" || Array.isArray(value))
         throw new AgentError("INVALID_REQUEST", `${name} must be an object`);
@@ -83,6 +96,7 @@ export class AgentDidService {
         this.config = config;
         this.store = new Store(config.dbPath);
         this.signer = new LocalKmsSigner(config);
+        this.retireV1PairingSecrets();
     }
     close() { this.store.close(); }
     async rawApi(path, init = {}) {
@@ -290,6 +304,10 @@ export class AgentDidService {
         if (Object.keys(object).some((key) => forbidden.test(key)))
             throw new AgentError("INVALID_PROFILE", "Profile contains a forbidden field");
         const profileHash = sha256(encoded);
+        if (!dryRun) {
+            this.store.db.prepare("UPDATE installations SET local_profile_json=? WHERE installation_id=?")
+                .run(encoded, this.config.installationId);
+        }
         if (!dryRun && identity.state === "ACTIVE" && identity.profile_hash === profileHash) {
             const prior = this.store.db.prepare("SELECT * FROM operations WHERE action_type = 'RegisterAgent' ORDER BY updated_at DESC LIMIT 1").get();
             if (prior)
@@ -494,50 +512,354 @@ export class AgentDidService {
         const result = await this.signChallenge({ issuer: "memo-agent-self-test", audience: "local-mvp", action: "identity.self-test", nonce: randomBytes(32).toString("hex"), issuedAt: instant, expiresAt: instant + 60 });
         return { passed: true, instanceId: result.instanceId, digest: result.digest };
     }
-    async createPairing(maxScopesCsv, maxTerm, ttl) {
+    async acceptPairingInvitation(packageValue, profile) {
         authorize("R2");
-        const identity = this.installation();
-        if (identity.state !== "ACTIVE")
-            throw new AgentError("IDENTITY_NOT_ACTIVE", "Identity is not active");
-        const scopes = [...new Set(maxScopesCsv.split(",").map((item) => item.trim()).filter(Boolean))].sort();
-        if (!scopes.length)
-            throw new AgentError("INVALID_SCOPE", "At least one scope is required");
-        const ttlSeconds = parseDuration(ttl);
-        const maxTermSeconds = parseDuration(maxTerm);
-        if (ttlSeconds < 60 || ttlSeconds > 86_400)
-            throw new AgentError("INVALID_PAIRING_TTL", "Pairing TTL must be between 60 seconds and 24 hours");
-        if (maxTermSeconds > 365 * 24 * 60 * 60)
-            throw new AgentError("INVALID_RELATIONSHIP_TERM", "Management term cannot exceed 365 days");
-        const remote = await this.api(`/api/v1/agent-dids/${encodeURIComponent(String(identity.agent_did))}/pairing-grants`, {
+        this.ensureIdentity();
+        const pairingPackage = this.validatePairingPackage(packageValue, "platform-invitation");
+        await this.assertPairingPlatform(pairingPackage);
+        const inspected = await this.api("/api/v1/pairing-invitations/inspect", {
             method: "POST",
-            body: JSON.stringify({ maxScopes: scopes, maxTermSeconds, ttlSeconds }),
+            body: JSON.stringify({ exchangeId: pairingPackage.exchangeId, handle: pairingPackage.handle }),
         });
-        const shareHandle = asString(remote.shareHandle, "shareHandle");
-        const tokenHash = asString(remote.grantHash, "grantHash");
-        const expiresAt = Math.floor(Date.parse(asString(remote.expiresAt, "expiresAt")) / 1000);
-        const pairingGrantId = `pair_${randomUUID()}`;
-        const secretHandle = this.signer.putSecret(shareHandle);
-        this.store.db.prepare("INSERT INTO pairing_grants VALUES (?, ?, ?, 'ACTIVE', ?, ?)").run(pairingGrantId, secretHandle, tokenHash, expiresAt, now());
-        return { pairingGrantId, state: "ACTIVE", expiresAt, maxScopes: scopes, maxTermSeconds, shareHandle };
+        this.assertPairingView(inspected, pairingPackage);
+        this.saveLocalPairing(pairingPackage, "CREATED");
+        const claimed = await this.api(`/api/v1/pairing-invitations/${encodeURIComponent(String(pairingPackage.exchangeId))}/claim`, {
+            method: "POST",
+            headers: { "idempotency-key": `pairing:${pairingPackage.exchangeId}:claim` },
+            body: JSON.stringify({ handle: pairingPackage.handle }),
+        });
+        this.assertPairingView(claimed, pairingPackage);
+        this.updateLocalPairing(String(pairingPackage.exchangeId), String(claimed.state || "CLAIMED"));
+        this.updateLocalPairing(String(pairingPackage.exchangeId), "REGISTRATION_PENDING");
+        const registration = await this.ensureRegisteredForPairing(profile);
+        const completed = await this.api(`/api/v1/pairing-invitations/${encodeURIComponent(String(pairingPackage.exchangeId))}/complete`, {
+            method: "POST",
+            headers: { "idempotency-key": `pairing:${pairingPackage.exchangeId}:complete` },
+        });
+        this.assertPairingView(completed, pairingPackage);
+        this.updateLocalPairing(String(pairingPackage.exchangeId), "PAIRED", registration.operationId);
+        this.destroyPairingSecret(String(pairingPackage.exchangeId));
+        return this.publicPairing(completed, registration.operationId);
     }
-    pairingStatus(id) {
-        const row = this.store.db.prepare("SELECT pairing_grant_id, token_hash, state, expires_at, updated_at FROM pairing_grants WHERE pairing_grant_id = ?").get(id);
-        if (!row)
-            throw new AgentError("PAIRING_GRANT_NOT_FOUND", "Pairing Grant was not found");
-        const state = row.state === "ACTIVE" && Number(row.expires_at) <= now() ? "EXPIRED" : row.state;
-        return { pairingGrantId: row.pairing_grant_id, tokenHash: row.token_hash, state, expiresAt: row.expires_at, updatedAt: row.updated_at };
+    async createPairingOffer(maxScopesCsv, maxTerm, ttl, profile) {
+        authorize("R2");
+        this.ensureIdentity();
+        const scopes = this.pairingScopes(maxScopesCsv);
+        const ttlSeconds = this.pairingDuration(ttl, "PAIRING_TTL", 86_400);
+        const maxTermSeconds = this.pairingDuration(maxTerm, "RELATIONSHIP_TERM", 365 * 24 * 60 * 60);
+        const registration = await this.ensureRegisteredForPairing(profile);
+        const identity = this.installation();
+        const exchangeId = `poff_${randomBytes(18).toString("base64url")}`;
+        const handle = `memo-pair-v2.${exchangeId}.${randomBytes(32).toString("base64url")}`;
+        const remote = await this.api("/api/v1/pairing-offers", {
+            method: "POST",
+            headers: { "idempotency-key": `pairing:${exchangeId}:create` },
+            body: JSON.stringify({
+                exchangeId,
+                tokenHash: pairingTokenHash(handle),
+                platformOrigin: this.config.apiOrigin,
+                maxScopes: scopes,
+                maxTermSeconds,
+                ttlSeconds,
+            }),
+        });
+        const pairingPackage = {
+            schema: PAIRING_SCHEMA,
+            kind: "agent-offer",
+            exchangeId,
+            platformOrigin: this.config.apiOrigin,
+            environment: this.config.deploymentEnvironment,
+            chainId: this.config.expectedChainId,
+            didRegistry: identity.registry_address,
+            managementRegistry: identity.management_registry_address,
+            handle,
+            issuedAt: remote.issuedAt,
+            expiresAt: remote.expiresAt,
+            agentDid: identity.agent_did,
+            identityAccount: identity.identity_account,
+            profileHash: identity.profile_hash,
+            maxScopes: scopes,
+            maxTermSeconds,
+        };
+        const validated = this.validatePairingPackage(pairingPackage, "agent-offer");
+        this.assertPairingView(remote, validated);
+        this.saveLocalPairing(validated, "CREATED");
+        return {
+            ...this.publicPairing(remote, registration.operationId),
+            pairingPackage: validated,
+        };
+    }
+    async pairingStatus(id) {
+        const row = this.localPairing(id);
+        const remote = await this.api(`/api/v1/pairing-exchanges/${encodeURIComponent(id)}`);
+        const state = String(remote.state);
+        this.updateLocalPairing(id, state, row.registration_operation_id ? String(row.registration_operation_id) : undefined);
+        if (["PAIRED", "CANCELLED", "EXPIRED", "FAILED"].includes(state))
+            this.destroyPairingSecret(id);
+        return this.publicPairing(remote, row.registration_operation_id ? String(row.registration_operation_id) : null);
+    }
+    async resumePairing(id, profile) {
+        authorize("R2");
+        const row = this.localPairing(id);
+        if (row.kind === "agent-offer")
+            return this.pairingStatus(id);
+        if (["PAIRED", "CANCELLED", "EXPIRED", "FAILED"].includes(String(row.state)))
+            return this.pairingStatus(id);
+        const pairingPackage = { ...JSON.parse(String(row.package_json)), handle: this.signer.readSecret(String(row.secret_handle)) };
+        return this.acceptPairingInvitation(pairingPackage, profile);
     }
     async cancelPairing(id) {
         authorize("R2");
-        const row = this.store.db.prepare("SELECT * FROM pairing_grants WHERE pairing_grant_id = ?").get(id);
-        if (!row)
-            throw new AgentError("PAIRING_GRANT_NOT_FOUND", "Pairing Grant was not found");
+        const row = this.localPairing(id);
         if (row.state !== "CANCELLED") {
-            await this.api(`/api/v1/pairing-grants/${encodeURIComponent(String(row.token_hash))}/cancel`, { method: "POST", body: "{}" });
-            this.signer.destroy(String(row.token_secret_handle));
-            this.store.db.prepare("UPDATE pairing_grants SET state = 'CANCELLED', updated_at = ? WHERE pairing_grant_id = ?").run(now(), id);
+            const remote = await this.api(`/api/v1/pairing-exchanges/${encodeURIComponent(id)}/cancel`, {
+                method: "POST",
+                headers: { "idempotency-key": `pairing:${id}:cancel` },
+            });
+            this.updateLocalPairing(id, String(remote.state || "CANCELLED"), row.registration_operation_id ? String(row.registration_operation_id) : undefined);
+            this.destroyPairingSecret(id);
+            return this.publicPairing(remote, row.registration_operation_id ? String(row.registration_operation_id) : null);
         }
-        return { pairingGrantId: id, state: "CANCELLED", reused: row.state === "CANCELLED" };
+        return this.publicPairing({ ...JSON.parse(String(row.package_json)), exchangeId: id, kind: row.kind, state: "CANCELLED" }, row.registration_operation_id ? String(row.registration_operation_id) : null);
+    }
+    retireV1PairingSecrets() {
+        const rows = this.store.db.prepare("SELECT pairing_grant_id,token_secret_handle FROM pairing_grants WHERE state!='LEGACY_INVALIDATED'").all();
+        for (const row of rows) {
+            try {
+                if (row.token_secret_handle !== "destroyed")
+                    this.signer.destroy(String(row.token_secret_handle));
+            }
+            catch (error) {
+                if (!(error instanceof AgentError) || error.code !== "KEY_NOT_FOUND")
+                    throw error;
+            }
+            this.store.db.prepare("UPDATE pairing_grants SET token_secret_handle='destroyed',state='LEGACY_INVALIDATED',updated_at=? WHERE pairing_grant_id=?")
+                .run(now(), String(row.pairing_grant_id));
+        }
+    }
+    async ensureRegisteredForPairing(profile) {
+        const identity = this.installation();
+        if (identity.state === "ACTIVE") {
+            const prior = this.store.db.prepare("SELECT operation_id FROM operations WHERE action_type='RegisterAgent' ORDER BY updated_at DESC LIMIT 1").get();
+            return { operationId: prior ? String(prior.operation_id) : null };
+        }
+        if (!["LOCAL_IDENTITY_READY", "REGISTRATION_SUBMITTED"].includes(String(identity.state))) {
+            throw new AgentError("IDENTITY_NOT_ACTIVE", "This identity state cannot be registered through Pairing");
+        }
+        let selected = profile;
+        if (selected === undefined && identity.local_profile_json)
+            selected = JSON.parse(String(identity.local_profile_json));
+        if (selected === undefined) {
+            selected = {
+                name: "Unnamed Agent",
+                description: "Registered through MEMO Agent DID pairing",
+                endpoints: [],
+            };
+        }
+        const result = await this.register(selected, false);
+        return { operationId: result.operationId };
+    }
+    validatePairingPackage(value, kind) {
+        const object = asObject(value, "pairing package");
+        const expected = kind === "platform-invitation" ? INVITATION_FIELDS : OFFER_FIELDS;
+        const actual = Object.keys(object).sort();
+        const required = [...expected].sort();
+        if (actual.length !== required.length || actual.some((field, index) => field !== required[index])) {
+            throw new AgentError("INVALID_PAIRING_PACKAGE", "Pairing package contains unknown or missing fields");
+        }
+        if (object.schema !== PAIRING_SCHEMA || object.kind !== kind)
+            throw new AgentError("INVALID_PAIRING_PACKAGE", "Pairing package schema or kind is invalid");
+        const exchangeId = asString(object.exchangeId, "exchangeId");
+        const expectedPrefix = kind === "platform-invitation" ? "pinv_" : "poff_";
+        if (!exchangeId.startsWith(expectedPrefix) || !/^(pinv|poff)_[A-Za-z0-9_-]{12,100}$/.test(exchangeId)) {
+            throw new AgentError("INVALID_PAIRING_PACKAGE", "Pairing exchange ID is invalid");
+        }
+        const handle = asString(object.handle, "handle");
+        const handleMatch = PAIRING_HANDLE.exec(handle);
+        if (!handleMatch || handleMatch[1] !== exchangeId)
+            throw new AgentError("INVALID_PAIRING_PACKAGE", "Pairing handle does not match the exchange");
+        if (object.platformOrigin !== this.config.apiOrigin || object.environment !== this.config.deploymentEnvironment || Number(object.chainId) !== this.config.expectedChainId) {
+            throw new AgentError("LOCAL_STATE_NETWORK_MISMATCH", "Pairing package targets another platform, environment, or chain");
+        }
+        for (const field of ["didRegistry", "managementRegistry"]) {
+            if (!/^0x[0-9a-fA-F]{40}$/.test(asString(object[field], field)) || /^0x0{40}$/i.test(String(object[field]))) {
+                throw new AgentError("INVALID_PAIRING_PACKAGE", `${field} is invalid`);
+            }
+        }
+        const issuedAt = asString(object.issuedAt, "issuedAt");
+        const expiresAt = asString(object.expiresAt, "expiresAt");
+        const issuedMs = Date.parse(issuedAt);
+        const expiresMs = Date.parse(expiresAt);
+        if (!Number.isFinite(issuedMs) || !Number.isFinite(expiresMs)
+            || new Date(issuedMs).toISOString() !== issuedAt || new Date(expiresMs).toISOString() !== expiresAt
+            || issuedMs > Date.now() + 60_000 || expiresMs <= Date.now() || expiresMs - issuedMs > 86_400_000) {
+            throw new AgentError("PAIRING_INVALID_OR_EXPIRED", "Pairing package time window is invalid or expired");
+        }
+        if (kind === "platform-invitation") {
+            try {
+                getAddress(asString(object.managerAccount, "managerAccount"));
+            }
+            catch {
+                throw new AgentError("INVALID_PAIRING_PACKAGE", "Manager account is invalid");
+            }
+            this.validatePairingScopes(object.requestedScopes, "requestedScopes");
+            this.validatePairingTerm(object.requestedTermSeconds, "requestedTermSeconds");
+            if (!["private", "public"].includes(String(object.visibility)))
+                throw new AgentError("INVALID_PAIRING_PACKAGE", "Pairing visibility is invalid");
+        }
+        else {
+            const agentDid = asString(object.agentDid, "agentDid");
+            const identityAccount = asString(object.identityAccount, "identityAccount");
+            if (agentDid !== `did:memo:agent:${this.config.expectedChainId}:${identityAccount.toLowerCase()}`) {
+                throw new AgentError("DID_KEY_MISMATCH", "Offer identity account does not match its AgentDID");
+            }
+            try {
+                getAddress(identityAccount);
+            }
+            catch {
+                throw new AgentError("INVALID_PAIRING_PACKAGE", "Offer identity account is invalid");
+            }
+            if (!/^0x[0-9a-f]{64}$/.test(asString(object.profileHash, "profileHash")))
+                throw new AgentError("INVALID_PAIRING_PACKAGE", "Offer profile hash is invalid");
+            this.validatePairingScopes(object.maxScopes, "maxScopes");
+            this.validatePairingTerm(object.maxTermSeconds, "maxTermSeconds");
+        }
+        return { ...object };
+    }
+    async assertPairingPlatform(pairingPackage) {
+        const chain = await this.chainConfig();
+        const contracts = asObject(chain.contracts, "contracts");
+        const didRegistry = asObject(contracts.agentDidRegistry, "agentDidRegistry");
+        const managementRegistry = asObject(contracts.agentManagementRegistry, "agentManagementRegistry");
+        if (String(pairingPackage.didRegistry).toLowerCase() !== String(didRegistry.address).toLowerCase()
+            || String(pairingPackage.managementRegistry).toLowerCase() !== String(managementRegistry.address).toLowerCase()) {
+            throw new AgentError("LOCAL_STATE_NETWORK_MISMATCH", "Pairing package Registry addresses do not match the platform");
+        }
+    }
+    assertPairingView(remote, pairingPackage) {
+        const equal = (left, right) => canonicalize(left) === canonicalize(right);
+        for (const field of ["schema", "kind", "exchangeId", "platformOrigin", "environment", "chainId", "issuedAt", "expiresAt"]) {
+            if (!equal(remote[field], pairingPackage[field]))
+                throw new AgentError("PAIRING_PACKAGE_MISMATCH", `Platform ${field} does not match the Pairing file`);
+        }
+        if (String(remote.didRegistry).toLowerCase() !== String(pairingPackage.didRegistry).toLowerCase()
+            || String(remote.managementRegistry).toLowerCase() !== String(pairingPackage.managementRegistry).toLowerCase()) {
+            throw new AgentError("PAIRING_PACKAGE_MISMATCH", "Platform Registry metadata does not match the Pairing file");
+        }
+        if (pairingPackage.kind === "platform-invitation") {
+            if (String(remote.managerAccount).toLowerCase() !== String(pairingPackage.managerAccount).toLowerCase()
+                || !equal(remote.requestedScopes, pairingPackage.requestedScopes)
+                || !equal(remote.requestedTermSeconds, pairingPackage.requestedTermSeconds)
+                || !equal(remote.visibility, pairingPackage.visibility)) {
+                throw new AgentError("PAIRING_PACKAGE_MISMATCH", "Invitation terms do not match the platform");
+            }
+        }
+        else if (remote.agentDid !== pairingPackage.agentDid
+            || String(remote.identityAccount).toLowerCase() !== String(pairingPackage.identityAccount).toLowerCase()
+            || remote.profileHash !== pairingPackage.profileHash
+            || !equal(remote.maxScopes, pairingPackage.maxScopes)
+            || !equal(remote.maxTermSeconds, pairingPackage.maxTermSeconds)) {
+            throw new AgentError("PAIRING_PACKAGE_MISMATCH", "Offer terms do not match the platform");
+        }
+    }
+    pairingScopes(csv) {
+        const result = [...new Set(csv.split(",").map((item) => item.trim()).filter(Boolean))].sort();
+        return this.validatePairingScopes(result, "maxScopes");
+    }
+    validatePairingScopes(value, name) {
+        const scopes = asStringArray(value, name);
+        if (scopes.length > 32 || scopes.some((scope) => !/^[a-z][a-z0-9_.:-]{1,63}$/.test(scope))) {
+            throw new AgentError("INVALID_SCOPE", `${name} contains an invalid scope`);
+        }
+        if (canonicalize(value) !== canonicalize(scopes))
+            throw new AgentError("INVALID_PAIRING_PACKAGE", `${name} must be unique and sorted`);
+        return scopes;
+    }
+    pairingDuration(value, name, maximum) {
+        const seconds = parseDuration(value);
+        if (seconds < 60 || seconds > maximum)
+            throw new AgentError(`INVALID_${name}`, `${name} must be between 60 and ${maximum} seconds`);
+        return seconds;
+    }
+    validatePairingTerm(value, name) {
+        const term = asInteger(value, name);
+        if (term < 60 || term > 365 * 24 * 60 * 60)
+            throw new AgentError("INVALID_RELATIONSHIP_TERM", `${name} is outside the supported range`);
+        return term;
+    }
+    saveLocalPairing(pairingPackage, state) {
+        const exchangeId = String(pairingPackage.exchangeId);
+        const redacted = { ...pairingPackage };
+        delete redacted.handle;
+        const existing = this.store.db.prepare("SELECT * FROM pairing_exchanges WHERE exchange_id=?").get(exchangeId);
+        if (existing) {
+            if (existing.kind !== pairingPackage.kind || canonicalize(JSON.parse(String(existing.package_json))) !== canonicalize(redacted)) {
+                throw new AgentError("PAIRING_PACKAGE_MISMATCH", "Local Pairing exchange metadata changed");
+            }
+            if (!["PAIRED", "CANCELLED", "EXPIRED", "FAILED"].includes(String(existing.state))
+                && this.signer.readSecret(String(existing.secret_handle)) !== pairingPackage.handle) {
+                throw new AgentError("PAIRING_PACKAGE_MISMATCH", "Local Pairing handle changed");
+            }
+            return;
+        }
+        const secretHandle = this.signer.putSecret(String(pairingPackage.handle));
+        this.store.db.prepare(`INSERT INTO pairing_exchanges(
+      exchange_id,kind,secret_handle,package_json,state,registration_operation_id,expires_at,updated_at
+    ) VALUES(?,?,?,?,?,NULL,?,?)`).run(exchangeId, String(pairingPackage.kind), secretHandle, JSON.stringify(redacted), state, Math.floor(Date.parse(String(pairingPackage.expiresAt)) / 1000), now());
+    }
+    localPairing(id) {
+        if (!/^(pinv|poff)_[A-Za-z0-9_-]{12,100}$/.test(id))
+            throw new AgentError("INVALID_PAIRING_EXCHANGE_ID", "Pairing exchange ID is invalid");
+        const row = this.store.db.prepare("SELECT * FROM pairing_exchanges WHERE exchange_id=?").get(id);
+        if (!row)
+            throw new AgentError("PAIRING_NOT_FOUND", "Pairing exchange was not found locally");
+        return row;
+    }
+    updateLocalPairing(id, state, operationId) {
+        this.store.db.prepare("UPDATE pairing_exchanges SET state=?,registration_operation_id=COALESCE(?,registration_operation_id),updated_at=? WHERE exchange_id=?")
+            .run(state, operationId || null, now(), id);
+    }
+    destroyPairingSecret(id) {
+        const row = this.store.db.prepare("SELECT secret_handle FROM pairing_exchanges WHERE exchange_id=?").get(id);
+        if (!row || row.secret_handle === "destroyed")
+            return;
+        try {
+            this.signer.destroy(String(row.secret_handle));
+        }
+        catch (error) {
+            if (!(error instanceof AgentError) || error.code !== "KEY_NOT_FOUND")
+                throw error;
+        }
+        this.store.db.prepare("UPDATE pairing_exchanges SET secret_handle='destroyed',updated_at=? WHERE exchange_id=?").run(now(), id);
+    }
+    publicPairing(remote, operationId) {
+        let confirmation = {};
+        if (operationId) {
+            const operation = this.store.db.prepare("SELECT data_json FROM operations WHERE operation_id=?").get(operationId);
+            if (operation) {
+                const data = JSON.parse(String(operation.data_json));
+                confirmation = {
+                    operationId,
+                    confirmations: data.confirmations,
+                    txHash: data.txHash,
+                    blockNumber: data.blockNumber,
+                    blockHash: data.blockHash,
+                };
+            }
+            else
+                confirmation = { operationId };
+        }
+        return {
+            exchangeId: remote.exchangeId,
+            kind: remote.kind,
+            state: remote.state,
+            agentDid: remote.agentDid || this.installation(false)?.agent_did,
+            expiresAt: remote.expiresAt,
+            completionDeadline: remote.completionDeadline,
+            bindingId: remote.bindingId || asObject(remote.binding || {}, "binding").bindingId,
+            managementDraftId: remote.managementDraftId || asObject(remote.managementDraft || {}, "managementDraft").draftId,
+            ...confirmation,
+        };
     }
     async nextAgentRequest(waitSeconds = 20) {
         const boundedWait = Math.max(0, Math.min(25, Math.floor(waitSeconds)));

@@ -127,13 +127,16 @@ node "<Skill目录>/bin/memo-agent-mainnet" operation reconcile op_... --json
 
 配置向导拒绝静默覆盖。确认要更新后增加 `--update`。旧配置会被复制为带时间戳、权限 `0600` 的备份。
 
-## Pairing handle 文件错误
+## Pairing Invitation / Offer 文件错误
 
-- `Pairing share-handle directory does not exist`：先创建只属于当前用户的目录。
-- `Pairing share-handle file already exists`：不要覆盖旧文件；确认旧 grant 已使用/取消后，选择一个全新文件名。
-- Console 提示 expired/used：创建一个新的短期 grant；不要复用旧 handle。
+- `INVALID_PAIRING_FILE`：Invitation 不是普通文件、是符号链接，或不属于当前用户；重新从可信 Console 下载到私有目录。
+- `Offer output directory does not exist`：先创建只属于当前用户的目录并设为 `0700`。
+- `Offer file already exists`：CLI 绝不覆盖文件；选择全新文件名。
+- `PAIRING_PACKAGE_MISMATCH`：文件中的 origin、chain、Registry、条款或过期时间与平台不一致；停止操作并重新生成，不要手工编辑。
+- `PAIRING_V1_REMOVED`：旧 `pair create` 已停用；改用 `pair invitation accept` 或 `pair offer create`。
+- 注册或网络中断：保留文件和同一 DID，用 `pair resume <exchange-id> --json` 续跑。
 
-Pairing 成功后删除 handle 文件。Pairing 只完成 Console 关联；如果 Management operation 未达到 `CONFIRMED`，钱包还不是链上 Primary Manager。
+Pairing 文件包含一次性 handle，不能展示内容或提交仓库。Pairing 只完成 Console 关联；如果 Management operation 未达到 `CONFIRMED`，钱包还不是链上 Primary Manager。
 
 ## Skill 没有被 Agent 发现
 

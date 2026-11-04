@@ -22,6 +22,7 @@ export interface SignerKms {
         address: string;
     };
     putSecret(value: string): string;
+    readSecret(handle: string): string;
     destroy(handle: string): void;
     getPublic(handle: string): {
         publicKey: string;
@@ -61,6 +62,7 @@ export declare class LocalKmsSigner implements SignerKms {
         address: string;
     };
     putSecret(value: string): string;
+    readSecret(handle: string): string;
     destroy(handle: string): void;
     getPublic(handle: string): {
         publicKey: string;

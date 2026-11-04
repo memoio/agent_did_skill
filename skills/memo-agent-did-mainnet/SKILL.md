@@ -29,7 +29,7 @@ In a writable workspace sandbox, set `MEMO_AGENT_MAINNET_HOME` to a mainnet-only
 2. When identity creation was requested and the checks pass, run `bin/memo-agent-mainnet identity ensure --json`, then `bin/memo-agent-mainnet identity status --json`. These are offline R1 steps, do not require a real platform API or R2/R4 grants, and must return the same DID and public key on every start. Storage failures require fixing storage, not configuring an API or granting chain permissions.
 3. Explain any chain write and its risk before invoking it. Registration, updates, pairing, instance actions, and management approval are R2 and require an explicit trusted service grant.
 4. Treat permanent revoke and successor declaration as R4. The packaged test grant works only against loopback chain-985 emulation; it is never valid in preprod or production.
-5. Pass secrets through the OS keyring or trusted environment only. Never place a private key, wrapping key, session token, Pairing share handle, or binding code in argv, chat, source files, or logs.
+5. Pass secrets through the OS keyring or protected Pairing package files only. Never place a private key, wrapping key, session token, Pairing handle, or package secret in argv, chat, source files, or logs.
 
 The environment master key is wrapping input for the encrypted identity-key file, not the identity private key. The CLI does not prohibit registration based on this provider alone; suitability for long-lived use depends on administrator-managed protection and persistence. If an existing identity loses its wrapping key, preserve its provider and state rather than generating replacement material.
 
@@ -50,14 +50,14 @@ The environment master key is wrapping input for the encrypted identity-key file
 4. Require chain ID `985`, the locked deployment environment, non-zero Registry addresses, and the exact configured platform origin.
 5. Reject zero addresses, unknown signed fields, expired deadlines, wrong revisions, wrong nonces, wrong Registry domains, and a digest that differs from the locally reconstructed digest.
 6. Use the Identity Key for Agent DID actions, Pairing, and management consent. Use Instance Keys only for routine Agent challenges.
-7. A Pairing Grant only associates an Agent with a wallet tenant. It does not establish a Management Relationship and does not authorize Gateway resources.
+7. A `memo-agent-pairing/2` Invitation or Offer only associates an Agent with one wallet tenant. It does not establish a Management Relationship and does not authorize Gateway resources.
 8. Before approving management, show the manager address, action, scopes hash, term, visibility, revision, deadline, and any transfer participants.
 9. If an operation is uncertain or reorged, reconcile the same operation and reuse the original action digest and signature. Do not create a second identity or payload.
 10. Never copy state or keys from `memo-agent-did`, Anvil-31337, preprod, or another installation. Any chain, Registry, API origin, public-key, or environment mismatch moves state to `QUARANTINED`.
 11. `identity ensure` never registers, pairs, creates an Owner/Manager relationship, publishes an attestation, or contacts the network.
 12. DataDID is non-authoritative and Gateway authorization remains separate.
-13. Installation and `setup-client` never call `identity ensure`, register on-chain, create a Pairing Grant, or enable R2/R4 policy grants.
+13. Installation and `setup-client` never call `identity ensure`, register on-chain, create a Pairing exchange, or enable R2/R4 policy grants.
 
 ## Output handling
 
-Parse exactly one `memo.agent-cli-result/2` JSON envelope from stdout. Treat `ok: false` as failure and branch on `error.code`. Do not infer success from prose. Do not expose the local state path, encrypted key store, session bearer, or Pairing share handle in model-visible output; pass a share handle only through the trusted user interface that will redeem it.
+Parse exactly one `memo.agent-cli-result/2` JSON envelope from stdout. Treat `ok: false` as failure and branch on `error.code`. Do not infer success from prose. Do not expose the local state path, encrypted key store, session bearer, or Pairing handle in model-visible output. Invitation and Offer files are bearer material: pass their paths to the CLI, but never print their contents.

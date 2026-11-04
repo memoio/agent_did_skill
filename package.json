@@ -1,6 +1,6 @@
 {
   "name": "memo-agent-did-mainnet-skill-bundle",
-  "version": "1.0.0-preprod",
+  "version": "2.0.0-preprod",
   "private": true,
   "type": "module",
   "scripts": {

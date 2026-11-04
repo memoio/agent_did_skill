@@ -102,7 +102,7 @@ describe("isolated mainnet identity bootstrap", () => {
     delete process.env.MEMO_AGENT_MAINNET_HOME;
   });
 
-  it("refuses to create a Pairing Grant without a protected share-handle file", () => {
+  it("rejects the removed Pairing v1 command with migration guidance", () => {
     const root = mkdtempSync(resolve(tmpdir(), "memo-mainnet-pairing-output-"));
     roots.push(root);
     const result = spawnSync(process.execPath, [
@@ -122,11 +122,11 @@ describe("isolated mainnet identity bootstrap", () => {
         MEMO_AGENT_MAINNET_MASTER_KEY: "pairing-output-test-master-key-32-characters",
       },
     });
-    expect(result.status).toBe(2);
+    expect(result.status).toBe(1);
     expect(JSON.parse(result.stdout)).toMatchObject({
       ok: false,
-      error: { code: "INVALID_ARGUMENT", message: "Missing --share-handle-file" },
+      error: { code: "PAIRING_V1_REMOVED", message: "pair create was removed; use pair invitation accept or pair offer create" },
     });
-    expect(result.stdout).not.toContain("shareHandle");
+    expect(result.stdout).not.toContain("memo-pair-v1");
   });
 });

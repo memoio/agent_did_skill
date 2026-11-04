@@ -2,12 +2,13 @@ import { loadConfig } from "./config.js";
 import { AgentDidService } from "./service.js";
 import { AgentError, asAgentError } from "./errors.js";
 import { failure, success } from "./envelope.js";
-import { chmodSync, existsSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 const args = process.argv.slice(2);
 const group = args[0] || "help";
 const command = args[1] || "";
-const action = command ? `${group}.${command}` : group;
+const nestedCommand = group === "pair" && ["invitation", "offer"].includes(command) ? args[2] || "" : "";
+const action = nestedCommand ? `${group}.${command}.${nestedCommand}` : command ? `${group}.${command}` : group;
 function option(name, required = true) {
     const index = args.indexOf(`--${name}`);
     if (index < 0) {
@@ -31,6 +32,30 @@ function rejectSecretArguments() {
         if (args.includes(forbidden))
             throw new AgentError("SECRET_IN_ARGUMENT", `${forbidden} is forbidden; use trusted environment or stdin input`);
     }
+}
+function checkedInvitation(pathValue) {
+    const path = resolve(pathValue);
+    const info = lstatSync(path);
+    if (info.isSymbolicLink() || !info.isFile())
+        throw new AgentError("INVALID_PAIRING_FILE", "Invitation must be a regular file, not a symbolic link");
+    if (info.size > 65_536)
+        throw new AgentError("INPUT_TOO_LARGE", "Invitation file exceeds 64 KiB");
+    if (typeof process.getuid === "function") {
+        if (info.uid !== process.getuid())
+            throw new AgentError("INVALID_PAIRING_FILE", "Invitation file is not owned by the current user");
+        chmodSync(path, 0o600);
+    }
+    return path;
+}
+function writeOffer(pathValue, value) {
+    const path = resolve(pathValue);
+    if (!existsSync(dirname(path)))
+        throw new AgentError("INVALID_ARGUMENT", "Offer output directory does not exist");
+    if (existsSync(path))
+        throw new AgentError("INVALID_ARGUMENT", "Offer file already exists");
+    writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    chmodSync(path, 0o600);
+    return path;
 }
 function exitCode(error) {
     if (error.code.startsWith("POLICY_"))
@@ -85,24 +110,33 @@ async function run() {
         if (group === "auth" && command === "sign")
             return success(action, await service.signChallenge(service.readJson(option("challenge-file"))));
         if (group === "pair" && command === "create") {
-            const shareHandleFile = resolve(option("share-handle-file"));
-            if (!existsSync(dirname(shareHandleFile)))
-                throw new AgentError("INVALID_ARGUMENT", "Pairing share-handle directory does not exist");
-            if (existsSync(shareHandleFile))
-                throw new AgentError("INVALID_ARGUMENT", "Pairing share-handle file already exists");
-            const result = await service.createPairing(option("max-scopes"), option("max-term"), option("ttl"));
-            const shareHandle = String(result.shareHandle || "");
-            if (!shareHandle)
-                throw new AgentError("PAIRING_GRANT_INVALID", "Platform did not return a Pairing share handle");
-            writeFileSync(shareHandleFile, `${shareHandle}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
-            chmodSync(shareHandleFile, 0o600);
-            const { shareHandle: _redacted, ...publicResult } = result;
-            return success(action, { ...publicResult, shareHandleStored: true });
+            throw new AgentError("PAIRING_V1_REMOVED", "pair create was removed; use pair invitation accept or pair offer create");
+        }
+        if (group === "pair" && command === "invitation" && nestedCommand === "accept") {
+            const profilePath = option("profile", false);
+            const data = await service.acceptPairingInvitation(service.readJson(checkedInvitation(option("invitation-file"))), profilePath ? service.readJson(profilePath) : undefined);
+            return success(action, data, typeof data.operationId === "string" ? data.operationId : null);
+        }
+        if (group === "pair" && command === "offer" && nestedCommand === "create") {
+            const offerFile = option("offer-file");
+            const profilePath = option("profile", false);
+            const result = await service.createPairingOffer(option("max-scopes"), option("max-term"), option("ttl"), profilePath ? service.readJson(profilePath) : undefined);
+            const pairingPackage = result.pairingPackage;
+            if (!pairingPackage)
+                throw new AgentError("INVALID_PAIRING_PACKAGE", "The platform did not produce an Agent Offer package");
+            const storedAt = writeOffer(offerFile, pairingPackage);
+            const { pairingPackage: _redacted, ...publicResult } = result;
+            return success(action, { ...publicResult, offerFile: storedAt, offerStored: true }, typeof result.operationId === "string" ? result.operationId : null);
         }
         if (group === "pair" && command === "status")
-            return success(action, service.pairingStatus(positional(2, "Pairing Grant ID")));
+            return success(action, await service.pairingStatus(positional(2, "Pairing exchange ID")));
+        if (group === "pair" && command === "resume") {
+            const profilePath = option("profile", false);
+            const data = await service.resumePairing(positional(2, "Pairing exchange ID"), profilePath ? service.readJson(profilePath) : undefined);
+            return success(action, data, typeof data.operationId === "string" ? data.operationId : null);
+        }
         if (group === "pair" && command === "cancel")
-            return success(action, await service.cancelPairing(positional(2, "Pairing Grant ID")));
+            return success(action, await service.cancelPairing(positional(2, "Pairing exchange ID")));
         if (group === "agent-request" && command === "next")
             return success(action, await service.nextAgentRequest(Number(option("wait-seconds", false) || "20")));
         if (group === "agent-request" && command === "approve")

@@ -1,6 +1,6 @@
 {
   "name": "memo-agent-did-mainnet",
-  "version": "1.0.0-preprod",
+  "version": "2.0.0-preprod",
   "description": "Create and operate a locally controlled MEMO chain-985 Agent DID without exporting its private key.",
   "author": {
     "name": "MEMO Agent DID"
