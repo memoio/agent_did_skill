@@ -8,7 +8,10 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "MEMO Mainnet Agent DID",
-    "shortDescription": "Create and connect a local chain-985 Agent DID"
+    "shortDescription": "Create and connect a local chain-985 Agent DID",
+    "defaultPrompt": [
+      "Use $memo-agent-did-mainnet on my computer or my explicitly selected long-lived host to finish runtime setup and check identity storage with doctor; report blockers without creating an identity or generating a fallback master key."
+    ]
   },
   "extensions": {
     "com.openai": {

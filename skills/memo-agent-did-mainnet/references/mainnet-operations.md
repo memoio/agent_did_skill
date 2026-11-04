@@ -8,7 +8,7 @@
 - `MEMO_AGENT_MAINNET_API_URL`: loopback HTTP in `local`; HTTPS otherwise.
 - `MEMO_AGENT_MAINNET_API_ORIGINS`: comma-separated exact HTTPS origins allowed in preprod/production.
 - `MEMO_AGENT_MAINNET_KEY_PROVIDER`: `auto`, `os-keyring`, or `env-master-key`.
-- `MEMO_AGENT_MAINNET_MASTER_KEY`: test/emergency wrapping input for `env-master-key`; at least 32 characters. Do not put it in argv or a checked-in file.
+- `MEMO_AGENT_MAINNET_MASTER_KEY`: administrator-supplied wrapping input for `env-master-key`; at least 32 characters. Identity private keys remain encrypted in their key file. Do not generate this input automatically or put it in chat, argv, logs or a checked-in file. The provider is not mechanically restricted to test registration; long-lived use requires managed persistence, protection and recovery.
 - `MEMO_AGENT_MAINNET_ALLOW_R2=1`: explicit trusted grant for reversible/normal chain actions.
 - `MEMO_AGENT_MAINNET_ALLOW_R4_TEST=1`: disposable local chain-985 test grant only. It is ignored outside `local` loopback mode.
 
@@ -18,11 +18,22 @@ The chain ID is fixed at `985`. Supplying any other `MEMO_AGENT_MAINNET_CHAIN_ID
 
 ```sh
 bin/memo-agent-mainnet doctor --json
+```
+
+Only after identity creation was requested and the checks pass:
+
+```sh
 bin/memo-agent-mainnet identity ensure --json
 bin/memo-agent-mainnet identity status --json
 ```
 
 Runtime adapters call `bootstrapMemoAgentMainnetRuntime`, which performs exactly `doctor → ensure → status`. These commands do not contact the API or chain. `identity init` is a deprecated alias. A status response exposes public material only; there is intentionally no private-key export command.
+
+Installation requests stop after runtime setup and `doctor`; the runtime bootstrap helper also creates identity and is only appropriate when creation was requested. Default to the user's computer or an explicitly selected long-lived host. A cloud session uses that remote host's storage, not the user's computer's keyring. Do not infer execution location or storage durability from the model, client, directory or container markers.
+
+Runtime setup retains `ready` but adds `readyScope: "runtime-dependencies"` on success and failure. Installer success adds `runtimeDependenciesReady: true` and `identityStorageChecked: false`. Neither checks identity storage or creates identity. Doctor retains the CLI schema, exit status and existing `ready` calculation, and adds `identityStorageReady`, `blockingChecks`, `platformConnectivityChecked: false` and `guidance`. R2/R4 grants and environment master-key presence are informational checks, not independent offline-creation requirements. A known provider may still lack accessible wrapping material; `secureStorageReady` determines storage readiness.
+
+Doctor's URL-policy check does not test API connectivity. Offline creation does not require a reachable API or chain grants, but remains bound to the configured deployment environment and URL policy: an identity created under default `local` must not be reused for preprod/production. Configure the intended environment and allowed HTTPS origin before creating an identity for those environments; API reachability is only needed for network operations. Doctor may initialize installation metadata and SQLite state, but does not create identity keys, verify long-term persistence or configure a secret store.
 
 Register an existing local identity explicitly:
 

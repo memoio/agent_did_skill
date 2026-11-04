@@ -2,11 +2,17 @@
 
 本手册给第一次接触 Agent Skill 的用户使用。安装只复制 Skill 和安装依赖；不会创建 DID、不会生成私钥、不会连接链、不会产生 Gas。
 
+默认请 Agent 在你的本机或你明确指定的长期运行主机上安装、初始化依赖并运行 `doctor`。实际执行主机与聊天客户端、模型名称不同；桌面客户端、Skill 安装目录或 `/root` 路径都不能单独证明程序运行在你的电脑上。
+
+推荐安装提示词：
+
+> 请在我的本机或我已明确指定的长期运行主机上，从 https://github.com/memoio/agent_did_skill 安装 memo-agent-did-mainnet，完成依赖初始化并检查身份密钥存储。若实际执行在临时云环境且缺少密钥保护或持久化条件，请说明阻塞原因并提供本机运行指引。安装阶段不创建身份、不上链，不自行生成备用主密钥。
+
 ## 1. 安装前准备
 
 你需要：
 
-- 64 位 macOS、Windows 或带桌面 Secret Service 的 Linux；
+- 64 位 macOS、Windows 或可访问已解锁 Secret Service 的 Linux；受控服务器也可使用下述管理员配置方案；
 - Node.js `22.5.0` 或更高版本，执行 `node --version` 检查；使用通用安装器和开发验证推荐 `22.22+`；
 - 配置平台连接时需要管理员提供的运行环境、Agent DID API 地址和 Console 地址；
 - 从 `https://github.com/memoio/agent_did_skill` 获取的完整 Skill 或发行仓库。
@@ -17,9 +23,11 @@
 
 - macOS：登录钥匙串可用；首次使用可能弹出系统授权框。
 - Windows：Credential Manager 可用。
-- Linux：图形会话中的 Secret Service 已启动且已解锁；本 Skill 不会回退到临时 kernel keyring。
+- Linux：当前执行会话可访问已启动且已解锁的 Secret Service；本 Skill 不会回退到临时 kernel keyring。
 
 不要在服务器、容器或 SSH 会话里假设系统密钥库一定可用。先执行后面的 `doctor`。
+
+受控云端长期身份需要管理员提供稳定的 installation ID、持久化身份目录，以及重启后仍可持续取得的同一密钥保护材料。没有系统密钥库时，已有的 `env-master-key` 方案允许管理员通过可信启动环境提供至少 32 字符的包装输入，身份私钥仍加密保存在文件中。不要由 Agent 自动生成备用主密钥；临时测试身份只按用户明确的测试意图处理。诊断通过不代表已验证长期持久性或恢复能力。
 
 ## 2. 选择一种安装方式
 
@@ -38,6 +46,8 @@ node "<Skill目录>/scripts/setup-runtime.mjs" --json
 ```
 
 也可以在该 Skill 目录执行 `npm run setup:runtime`。它按锁文件安装生产依赖并验证导入，不需要后端源码或 TypeScript 编译器；此步骤访问 npm registry，不访问平台、不生成身份、不启用 R2/R4。
+
+初始化结果的 `readyScope: "runtime-dependencies"` 表明 `ready` 仅描述依赖。仓库安装器的 `runtimeDependenciesReady: true`、`identityStorageChecked: false` 也不表示身份存储已可用；安装后继续执行 `doctor`。
 
 如果 `dist`、锁文件或 CLI 缺失，会返回 `RUNTIME_PACKAGE_INCOMPLETE`，请重新安装完整 Skill。依赖安装失败返回 `DEPENDENCY_INSTALL_FAILED`，检查网络和 npm registry 后重试；原生模块无法导入返回 `RUNTIME_IMPORT_FAILED`，检查操作系统、架构和 Node.js 版本。出现这些错误应停止，不要继续创建身份。
 
@@ -67,7 +77,7 @@ node scripts/install.mjs --target codex-project --project /你的项目目录
 安装后新开一个 Codex 对话，在 `/skills` 中确认 `memo-agent-did-mainnet`，或直接输入：
 
 ```text
-$memo-agent-did-mainnet 检查安全存储，确保本机 Agent DID 已创建，并只显示公开状态。
+$memo-agent-did-mainnet 在我的本机或已明确指定的长期主机上完成依赖初始化并运行 doctor，报告身份存储检查结果。安装阶段不创建身份，不自行生成备用主密钥。
 ```
 
 Codex 默认用户级目标为 `~/.agents/skills/<name>`，项目级目标为 `.agents/skills/<name>`。若显式设置 `CODEX_HOME`，用户级目标仍使用 `$CODEX_HOME/skills/<name>`。参考 [OpenAI Skills 文档](https://learn.chatgpt.com/docs/build-skills)。已有 `.codex/skills` 不会被自动迁移；升级旧路径可用 `--target runtime --dest <旧Skill目录> --upgrade`，不要重复安装同名 Skill 后误用旧版本。
@@ -91,10 +101,12 @@ node scripts/install.mjs --target claude-project --project /你的项目目录
 安装后重启 Claude Code，或执行 `/reload-skills`，然后输入：
 
 ```text
-/memo-agent-did-mainnet 检查安全存储，确保本机 Agent DID 已创建，并只显示公开状态。
+/memo-agent-did-mainnet 在我的本机或已明确指定的长期主机上完成依赖初始化并运行 doctor，报告身份存储检查结果。安装阶段不创建身份，不自行生成备用主密钥。
 ```
 
 Claude Code 官方支持用户级 `~/.claude/skills/<name>` 和项目级 `.claude/skills/<name>`。参考 [Claude Code Skills 文档](https://code.claude.com/docs/en/skills)。
+
+在你电脑上的本地 Claude Code 会话中，上述命令使用该电脑的存储服务。在 Claude 云端会话中，命令运行在远端，不能直接使用你电脑的 Keychain；桌面聊天窗口也不能单独证明执行发生在本机。若实际会话缺少密钥保护或持久化条件，应在本机终端重新执行安装命令并运行 `doctor`，或由管理员先准备符合条件的长期主机；不要把存储阻塞归因于 Claude 模型本身。
 
 ### DeepSeek 用户
 
@@ -122,9 +134,32 @@ node scripts/install.mjs --target runtime --dest /独立路径/memo-agent-did-ma
 
 然后把该目录的 `SKILL.md` 和 `bin/memo-agent-mainnet` 接入宿主。不要让模型获得读取 `keys.enc.json`、系统密钥库或 Pairing handle 文件的权限。
 
-## 3. 配置平台连接
+## 3. 检查存储与离线创建身份
 
-安装器会显示实际安装目录。下面用 `<Skill目录>` 代表它。运行配置向导：
+安装器会显示实际安装目录。下面用 `<Skill目录>` 代表它。先执行：
+
+```sh
+node "<Skill目录>/bin/memo-agent-mainnet" doctor --json
+```
+
+检查 `data.ready`、`identityStorageReady`、`blockingChecks` 和 `guidance`。顶层 `ok: true` 和成功退出码只表示诊断命令执行完成。`ready: false` 时按阻塞项修复；系统密钥库不可用时检查服务、解锁和当前会话访问权限，或使用管理员已配置的保护方案。R2/R4 未开启、没有环境变量主密钥不会单独阻塞已有可用系统密钥库的离线流程。
+
+`platformConnectivityChecked: false` 表示没有联系平台；`networkEgress` 检查的是地址配置策略，不能证明 API 可达。`doctor` 会初始化安装标记和状态数据库，不生成身份或包装密钥，也不验证存储长期持久性。
+
+只请求安装或环境检查时到此结束。用户同时明确请求创建身份且检查通过时，可继续执行，无需重复索取同一授权：
+
+```sh
+node "<Skill目录>/bin/memo-agent-mainnet" identity ensure --json
+node "<Skill目录>/bin/memo-agent-mainnet" identity status --json
+```
+
+正确结果是 `LOCAL_IDENTITY_READY`、`registered: false`，并返回 `did:memo:agent:985:0x...`。再次执行 `identity ensure` 应返回相同 DID 和 `reused: true`。这不需要平台、Console、RPC 在线，也不需要 R2/R4。
+
+身份仍绑定部署环境：默认是 `local`；计划用于 preprod/production 的身份应在创建前确定该环境和合法 HTTPS origin，按下一节保存配置即可，无需平台此时在线。已有 local 身份不能跨环境复用。多 Agent 还需在创建前分别固定 installation ID 和持久化状态根。
+
+## 4. 后续注册的平台连接配置
+
+真实 API 和明确的 R2 授权用于后续注册，不是修复离线密钥存储的条件。由管理员提供目标环境和地址，再运行配置向导：
 
 ```sh
 node "<Skill目录>/scripts/setup-client.mjs"
@@ -160,34 +195,19 @@ node "<Skill目录>/scripts/setup-client.mjs" \
 
 同一系统用户下有多个 Agent 时，宿主应为每个 Agent 保存独立的 `MEMO_AGENT_MAINNET_HOME`，再在该 Agent 的启动环境中持续加载它。配置向导会把非秘密连接参数写入该根目录的 `client.json`，后续 CLI 自动读取。两个 Agent 不要共用同一份 `client.json` 或默认 `.installation-id`；重启不得更换 installation ID 或使用临时状态目录。
 
-## 4. 第一次启动
-
-依次执行：
-
-```sh
-node "<Skill目录>/bin/memo-agent-mainnet" doctor --json
-node "<Skill目录>/bin/memo-agent-mainnet" identity ensure --json
-node "<Skill目录>/bin/memo-agent-mainnet" identity status --json
-```
-
-正确结果：
-
-- `doctor` 的 `data.ready` 为 `true`；
-- `identity ensure` 返回 `did:memo:agent:985:0x...`；
-- `identity status` 返回同一个 DID、公钥和 `identityKeyHandle`；
-- 状态是 `LOCAL_IDENTITY_READY`，`registered` 是 `false`。
-
-只请求安装或环境检查时，执行到 `doctor` 即结束；只有用户请求创建身份时才执行 `identity ensure`。`doctor` 即使返回 `ok: true`，仍需检查 `data.ready`；密钥库不可用时应报告环境问题。
-
-再次执行 `identity ensure` 必须返回相同 DID，并显示 `reused: true`。它不需要 Console、RPC 或区块链在线。
+已有身份要保持原部署环境、installation ID 和状态根，不能通过切换环境、provider 或重新生成包装密钥来修复。原保护材料丢失时先恢复其访问。代码不会仅因使用 `env-master-key` 而禁止注册，长期保管责任仍由主机管理员承担。
 
 ## 5. Windows PowerShell 示例
 
 在 PowerShell 中，`$HOME` 是用户目录。Codex 默认路径示例：
 
 ```powershell
-node "$HOME\.agents\skills\memo-agent-did-mainnet\scripts\setup-client.mjs"
 node "$HOME\.agents\skills\memo-agent-did-mainnet\bin\memo-agent-mainnet" doctor --json
+```
+
+安装或检查请求到此结束。已经请求创建身份、确定部署环境且检查通过时才执行：
+
+```powershell
 node "$HOME\.agents\skills\memo-agent-did-mainnet\bin\memo-agent-mainnet" identity ensure --json
 node "$HOME\.agents\skills\memo-agent-did-mainnet\bin\memo-agent-mainnet" identity status --json
 ```
@@ -204,7 +224,7 @@ node scripts/install.mjs --target codex-user --upgrade
 
 安装器会先把旧 Skill 目录改名为带时间戳的备份；不会删除身份状态。`~/.memo-agent-mainnet` 是独立状态根，不位于 Skill 安装目录中。
 
-升级后重新运行 `doctor`、`identity ensure` 和 `identity status`，确认 DID、公钥和 key handle 完全不变。
+升级后重新运行 `doctor`；已有身份可用 `identity status` 核对 DID、公钥和 key handle。仅在已请求创建或复用身份时运行 `identity ensure`。没有原保护材料时停止并恢复它，不生成替代身份。
 
 若通过通用安装器安装，可使用其更新功能；更新后重新运行 `scripts/setup-runtime.mjs --json`。更新 Skill 程序与删除身份状态无关，不要清理状态根或系统密钥库。
 

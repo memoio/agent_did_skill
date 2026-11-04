@@ -34,7 +34,7 @@ export function setupRuntime({ root = skillRoot, run = spawnSync } = {}) {
   if (imported.error || imported.status !== 0) {
     fail("RUNTIME_IMPORT_FAILED", "Runtime module import failed; check the Node.js version and native keyring package support for this operating system.");
   }
-  return { schema: "memo.agent-runtime-setup/1", ready: true, generatedIdentity: false };
+  return { schema: "memo.agent-runtime-setup/1", readyScope: "runtime-dependencies", ready: true, generatedIdentity: false };
 }
 
 if (process.argv[1] && existsSync(process.argv[1]) && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
@@ -43,7 +43,7 @@ if (process.argv[1] && existsSync(process.argv[1]) && realpathSync(process.argv[
     process.stdout.write(JSON.stringify(setupRuntime()) + "\n");
   } catch (error) {
     process.stdout.write(JSON.stringify({
-      schema: "memo.agent-runtime-setup/1", ready: false, generatedIdentity: false,
+      schema: "memo.agent-runtime-setup/1", readyScope: "runtime-dependencies", ready: false, generatedIdentity: false,
       error: { code: error.code || "RUNTIME_SETUP_FAILED", message: error.message },
     }) + "\n");
     process.exitCode = 1;

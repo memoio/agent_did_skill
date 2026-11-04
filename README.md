@@ -1,6 +1,6 @@
 # MEMO Agent DID Skill
 
-为具备本地终端执行能力的 Agent 创建并使用 MEMO chain-985 身份。私钥由 Agent 的本地运行环境加密保管；平台通过挑战签名认证 Agent，并提供注册、配对和链上管理关系流程。
+默认在用户本机，或用户明确选择的长期运行主机上，为 Agent 创建并使用 MEMO chain-985 身份。私钥由该主机上的运行环境加密保管；平台通过挑战签名认证 Agent，并提供注册、配对和链上管理关系流程。
 
 仓库：<https://github.com/memoio/agent_did_skill>。当前版本为 `1.0.0-preprod`，许可标记为 `UNLICENSED`。本仓库包含独立 Agent 端 Skill，不需要后端源码；链上操作需要管理员提供可访问的平台 API。
 
@@ -8,9 +8,13 @@
 
 将下面这句话发给 Codex、Claude Code 或支持本地 Skill 的其他 Agent：
 
-> 请从 https://github.com/memoio/agent_did_skill 安装 memo-agent-did-mainnet，按照安装说明完成依赖初始化，并检查运行环境。安装期间不要创建身份、配对或链上交易，不要开启 R2/R4 授权。
+> 请在我的本机或我已明确指定的长期运行主机上，从 https://github.com/memoio/agent_did_skill 安装 memo-agent-did-mainnet，完成依赖初始化并检查身份密钥存储。若实际执行在临时云环境且缺少密钥保护或持久化条件，请说明阻塞原因并提供本机运行指引。安装阶段不创建身份、不上链，不自行生成备用主密钥。
 
 普通网页聊天模型或单独的模型 API 需要具备本地执行能力的宿主，才能安装和运行此 Skill。
+
+“本地”指命令实际执行的主机。模型名称、桌面聊天客户端、安装目录或 `/root` 路径都不能单独证明程序运行在用户电脑上。Claude Code 的本地会话使用本机环境；云端会话使用远端环境，无法直接使用用户电脑的 Keychain。
+
+受控服务器或云主机有条件支持：管理员需提供稳定的 installation ID、持久化身份目录、可用的密钥保护方式，以及重启后继续取得同一包装密钥的能力。临时云容器不作为长期身份的默认运行位置；只有用户明确要求临时测试时才按测试身份处理。`doctor` 不自动判断云端类型，也不验证磁盘长期持久性或备份。
 
 ## 方式一：通用 Skill 安装器
 
@@ -26,7 +30,7 @@ npx skills add memoio/agent_did_skill --skill memo-agent-did-mainnet
 node "<Skill目录>/scripts/setup-runtime.mjs" --json
 ```
 
-也可以在该 Skill 目录执行 `npm run setup:runtime`。成功返回 `ready: true` 和 `generatedIdentity: false`。依赖初始化会访问 npm registry，不访问 Agent DID 平台、不生成密钥、不需要 TypeScript 编译器。
+也可以在该 Skill 目录执行 `npm run setup:runtime`。成功返回 `ready: true`、`readyScope: "runtime-dependencies"` 和 `generatedIdentity: false`，仅表示运行依赖就绪。依赖初始化会访问 npm registry，不访问 Agent DID 平台、不生成密钥、不需要 TypeScript 编译器。
 
 ## 方式二：克隆后使用仓库安装器
 
@@ -45,18 +49,26 @@ node scripts/install.mjs --target claude-user
 
 Codex 也可以通过内置 Skill Installer 安装指定子目录：
 
-> 使用 $skill-installer 从 memoio/agent_did_skill 仓库的 skills/memo-agent-did-mainnet 子目录安装 Skill，然后运行安装目录中的 scripts/setup-runtime.mjs --json 完成依赖初始化。
+> 使用 $skill-installer 在我的本机或已指定的长期主机上，从 memoio/agent_did_skill 的 skills/memo-agent-did-mainnet 子目录安装，完成依赖初始化并运行 doctor 检查身份存储；安装阶段不创建身份。
 
-## 配置与首次创建身份
+## 检查身份存储与离线创建
 
-安装完成后，运行配置向导，填写管理员提供的环境和 API 地址：
+安装完成后先检查当前主机的身份存储，无需先部署或连接平台：
 
 ```sh
-node "<Skill目录>/scripts/setup-client.mjs"
 node "<Skill目录>/bin/memo-agent-mainnet" doctor --json
 ```
 
-检查 `doctor` 的 `data.ready`。系统密钥库不可用时先解决环境问题，不要把安装成功当作身份已就绪。用户明确请求创建身份后再执行：
+| 结果 | 表示什么 |
+| --- | --- |
+| 安装器 `runtimeDependenciesReady: true` | 文件及依赖已安装，`identityStorageChecked: false` 表示尚未检查身份存储 |
+| `doctor.data.identityStorageReady` | 当前配置能否使用身份密钥存储 |
+| `doctor.data.ready`、`blockingChecks` | 现有本地身份前置检查是否通过，以及失败项 |
+| `platformConnectivityChecked: false` | 没有检测平台连通性；URL 检查通过不代表服务器在线 |
+
+系统密钥库不可用时先解决存储问题，补填平台 API 或开启 R2/R4 不能修复密钥存储。`doctor` 会初始化安装标记和状态数据库，但不生成身份密钥，也不自动配置系统密钥库。
+
+用户已请求创建身份、检查通过，且已选择合适的运行主机后执行；如果请求本身已经包含创建身份，无需重复索取同一授权：
 
 ```sh
 node "<Skill目录>/bin/memo-agent-mainnet" identity ensure --json
@@ -65,7 +77,21 @@ node "<Skill目录>/bin/memo-agent-mainnet" identity status --json
 
 `identity ensure` 首次在本地生成密钥与 DID，后续复用同一身份，不联网、不上链。`identity status` 显示公开身份状态，不显示私钥。系统密钥库要求：macOS Keychain、Windows Credential Manager 或已解锁的 Linux Secret Service；容器和 SSH 会话不保证具备这些条件。
 
+“离线”表示不要求平台在线或 R2/R4 授权，身份仍绑定部署环境。未配置时使用 `local`；准备接入 preprod/production 的身份应在创建前固定对应环境和合法 HTTPS origin（见下一节），不要求此时 API 已连通。已有 `local` 身份不能直接跨环境复用为预发布或生产身份。
+
 同一机器运行多个 Agent 时，由宿主为每个 Agent 持久化不同的 `MEMO_AGENT_MAINNET_INSTALLATION_ID` 和各自的 `MEMO_AGENT_MAINNET_HOME`。重启继续加载原配置与状态，不能共用默认身份、复制另一 Agent 的密钥或每次启动生成新 ID。
+
+## 后续注册的连接配置
+
+准备注册时，由管理员提供目标环境、真实 API 和 Console 地址，通过向导保存连接配置：
+
+```sh
+node "<Skill目录>/scripts/setup-client.mjs"
+```
+
+已有身份应保持原部署环境、installation ID 和状态根。配置连接不等于注册；实际注册需要可用的平台服务和明确的 R2 授权。
+
+`env-master-key` 是已有的备用保护方式：环境变量提供包装／解密输入，身份私钥仍加密保存在文件中。配置向导默认使用系统密钥库，不会自行生成备用主密钥。代码不会仅因使用备用 provider 而禁止注册；长期使用需由管理员管理密钥保护、持久化与恢复。已有身份丢失包装密钥时必须恢复原保护材料，不得切换 provider 或生成替代身份。
 
 ## 平台边界
 

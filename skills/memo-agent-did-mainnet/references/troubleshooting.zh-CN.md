@@ -8,10 +8,19 @@
 node --version
 node "<Skill目录>/bin/memo-agent-mainnet" doctor --json
 node "<Skill目录>/bin/memo-agent-mainnet" identity status --json
-node "<Skill目录>/bin/memo-agent-mainnet" identity ensure --json
 ```
 
 每条命令只读取一行 JSON。顶层 `ok: false` 时记录 `error.code`；不要把包含 Pairing handle、session token 或本地文件内容的日志发给别人。
+
+`doctor` 顶层 `ok: true` 和退出码 0 只表示检查执行成功。创建身份前还需查看 `data.ready`、`identityStorageReady`、`blockingChecks` 和 `guidance`。仅当用户请求创建身份且检查通过后执行 `identity ensure`；安装或诊断本身不创建身份，已经明确的创建请求无需再次确认。
+
+`doctor` 会初始化安装标记和状态数据库，不创建身份密钥。`platformConnectivityChecked: false` 表示未连接平台；`networkEgress` 只检查 URL 策略。存储就绪不代表已经验证长期持久化、备份或注册状态。
+
+## 安装成功，但身份存储未就绪
+
+`setup-runtime` 的 `readyScope: "runtime-dependencies"` 只覆盖依赖导入。仓库安装器的 `runtimeDependenciesReady: true` 与 `identityStorageChecked: false` 表示还需执行 `doctor`。原生模块能导入，不表示当前会话能访问系统密钥库。
+
+默认使用用户本机或用户已指定的长期主机。Claude Code 本地会话与云端会话的执行位置不同；桌面聊天客户端、模型名或安装目录不能证明能访问用户电脑的密钥库。云环境需要管理员提供持久化身份状态、稳定 installation ID 和可持续取得的包装密钥。临时容器不默认创建长期身份，也不自动生成备用主密钥；明确请求的临时测试应标注为测试。
 
 ## Node 版本不支持
 
@@ -21,14 +30,15 @@ node "<Skill目录>/bin/memo-agent-mainnet" identity ensure --json
 
 ## `SECURE_STORAGE_UNAVAILABLE`
 
-含义：OS Keyring 不可用、被锁定，或已有密钥文件对应的 wrapping key 丢失。
+含义：OS Keyring 不可用、被锁定、当前会话无访问权限，或缺少／无法使用当前 provider 对应的 wrapping key。
 
 处理：
 
-1. macOS 解锁登录钥匙串；Windows 检查 Credential Manager；Linux 确认 Secret Service 在当前桌面会话中运行并已解锁。
+1. macOS 解锁登录钥匙串并检查访问权限；Windows 检查 Credential Manager；Linux 确认当前执行会话能访问已启动且解锁的 Secret Service。
 2. 重新运行 `doctor`，查看 `keyringAvailable` 和 `secureStorageReady`。
 3. 如果 `keys.enc.json` 已存在，绝对不要生成新的 wrapping key，也不要改 provider；由管理员从同一 installation 的安全备份恢复。
-4. `MEMO_AGENT_MAINNET_MASTER_KEY` 只适合明确配置过的旧/测试 installation，不能用于猜测或替代丢失的 Keyring secret。
+4. 对于尚未创建身份的受控主机，管理员可以明确配置现有 `env-master-key` 方案，提供至少 32 字符的包装输入；不要让 Agent 自动生成或在聊天、argv、日志中传递它。环境变量中的是包装／解密输入，身份私钥仍加密保存在文件中。代码不会仅因该 provider 而禁止注册；长期身份仍需持久化、密钥管理和恢复条件。
+5. 缺少真实平台 API 或 R2/R4 授权不会导致当前的离线密钥存储失败，也不能通过补填 API 或开启链上授权修复它。
 
 已有数据库但 Keyring secret 丢失时，正确结果是失败关闭或进入 `QUARANTINED`，不是生成新 DID。
 
@@ -127,7 +137,7 @@ Pairing 成功后删除 handle 文件。Pairing 只完成 Console 关联；如�
 
 ## Skill 没有被 Agent 发现
 
-Codex：确认目录是 `~/.codex/skills/memo-agent-did-mainnet/SKILL.md` 或项目的 `.codex/skills/...`，新开对话并在 `/skills` 中检查。
+Codex：默认检查 `~/.agents/skills/memo-agent-did-mainnet/SKILL.md` 或项目的 `.agents/skills/...`；显式配置 `CODEX_HOME` 时检查其 `skills` 子目录。安装器输出的实际路径为准，已有 `.codex/skills` 不自动迁移。新开对话并在 `/skills` 中检查，避免重复安装后加载旧版本。
 
 Claude Code：确认目录是 `~/.claude/skills/memo-agent-did-mainnet/SKILL.md` 或项目的 `.claude/skills/...`，执行 `/reload-skills`。
 

@@ -9,21 +9,29 @@ metadata:
 
 Use the deterministic `bin/memo-agent-mainnet` CLI bundled in this Skill. It creates an offline installation identity first, then performs explicit chain-985 operations through the configured HTTPS platform. The local Identity Key signs only registered EIP-712 actions and fixed Agent-session challenges. Alto, EntryPoint v0.7, and the Relayer Smart Account are transport and Gas layers; they never replace Agent authorization.
 
+## Execution host and installation scope
+
+Default to running on the user's own computer, or on a long-lived host they explicitly selected. The model name, desktop chat client, installation directory, or a `/root` path does not establish where commands execute. Distinguish a local Claude Code session from a cloud session; never imply that code in a cloud container can access the user's computer's keyring.
+
+Controlled servers and cloud hosts can use the existing storage providers when the administrator supplies persistent identity state, a stable installation ID and continued access to the same wrapping key. Temporary cloud environments are not the default place for long-lived identities. Do not automatically generate a fallback master key or a disposable identity. Handle an explicitly requested disposable test as a test, without describing it as durable identity storage.
+
 ## Working directory
 
 Resolve commands relative to this Skill directory; never assume the backend monorepo is present. GitHub Skill installers copy files but may not install Node.js dependencies. After installing this Skill, run `node scripts/setup-runtime.mjs --json` from this directory to install its locked production dependencies and verify the runtime. This setup step does not create identity state or contact the platform. If `dist/` or `bin/memo-agent-mainnet` is missing, or setup fails, read [references/installation.zh-CN.md](references/installation.zh-CN.md), report the error and stop before creating identity state. The default state root is `~/.memo-agent-mainnet/agents/{installationId}` and is deliberately different from the old `~/.memo-agent` state.
 
-For an installation-only request, finish after runtime setup and the requested environment check; do not run `identity ensure` until identity creation is requested. Before ensuring identity on a multi-Agent host, use the host-provided stable `MEMO_AGENT_MAINNET_INSTALLATION_ID` and persistent `MEMO_AGENT_MAINNET_HOME` for this Agent. Do not reuse another Agent's configuration or invent a new ID on each start.
+For an installation-only request, finish after runtime setup and `doctor`; do not run `identity ensure` until identity creation is requested. If the user already requested both installation and identity creation, continue after the checks pass without asking for the same authorization again. Before ensuring identity on a multi-Agent host, use the host-provided stable `MEMO_AGENT_MAINNET_INSTALLATION_ID` and persistent `MEMO_AGENT_MAINNET_HOME` for this Agent. Do not reuse another Agent's configuration or invent a new ID on each start.
 
-In a writable workspace sandbox, set `MEMO_AGENT_MAINNET_HOME` to a mainnet-only workspace directory. Never point it at an old Skill state directory. For preprod or production, configure an explicit HTTPS origin allowlist as described in [references/mainnet-operations.md](references/mainnet-operations.md).
+In a writable workspace sandbox, set `MEMO_AGENT_MAINNET_HOME` to a mainnet-only workspace directory. Never point it at an old Skill state directory. Identity is bound to the deployment environment: before creating an identity intended for preprod or production, fix that environment and its allowed HTTPS origin as described in [references/mainnet-operations.md](references/mainnet-operations.md). The API need not be online then; do not create under default `local` and imply that identity can later be reused across environments.
 
 ## Before acting
 
-1. Run `bin/memo-agent-mainnet doctor --json`.
-2. Run `bin/memo-agent-mainnet identity ensure --json`, then `bin/memo-agent-mainnet identity status --json`. These are offline R1 steps and must return the same DID and public key on every start.
+1. Run `bin/memo-agent-mainnet doctor --json`. Runtime setup's `ready` covers dependencies only. Check doctor's `data.ready`, `identityStorageReady`, `blockingChecks` and `guidance`; a successful command exit alone does not mean identity storage is ready. Doctor does not test platform connectivity or long-term state persistence.
+2. When identity creation was requested and the checks pass, run `bin/memo-agent-mainnet identity ensure --json`, then `bin/memo-agent-mainnet identity status --json`. These are offline R1 steps, do not require a real platform API or R2/R4 grants, and must return the same DID and public key on every start. Storage failures require fixing storage, not configuring an API or granting chain permissions.
 3. Explain any chain write and its risk before invoking it. Registration, updates, pairing, instance actions, and management approval are R2 and require an explicit trusted service grant.
 4. Treat permanent revoke and successor declaration as R4. The packaged test grant works only against loopback chain-985 emulation; it is never valid in preprod or production.
 5. Pass secrets through the OS keyring or trusted environment only. Never place a private key, wrapping key, session token, Pairing share handle, or binding code in argv, chat, source files, or logs.
+
+The environment master key is wrapping input for the encrypted identity-key file, not the identity private key. The CLI does not prohibit registration based on this provider alone; suitability for long-lived use depends on administrator-managed protection and persistence. If an existing identity loses its wrapping key, preserve its provider and state rather than generating replacement material.
 
 ## Route the request
 

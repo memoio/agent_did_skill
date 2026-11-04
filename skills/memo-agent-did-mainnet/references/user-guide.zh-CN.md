@@ -3,17 +3,22 @@
 ## 先记住三件事
 
 1. Agent DID 由本地 Identity Key 的公开地址派生：`did:memo:agent:985:0x...`。
-2. 私钥永远留在本机，不能导出、不能发给平台、不能粘贴到 Agent 对话；平台只收到签名。
+2. 私钥加密保存在实际执行主机上，不能导出、不能发给平台、不能粘贴到 Agent 对话；平台只收到签名。
 3. 本地 DID、平台配对和链上管理关系是三件不同的事，不会因为安装 Skill 自动发生。
+
+默认执行主机是你的电脑或你明确指定的长期主机。聊天客户端、模型名称、安装目录都不能单独证明执行发生在本机：Claude 本地会话与云端会话使用各自的运行环境。受控云端需由管理员提供稳定 installation ID、持久化身份目录及持续可取得的同一包装密钥；临时云环境缺少这些条件时，应先在本机或已准备好的长期主机检查。只有用户明确要求时才处理临时测试身份，不自行生成备用主密钥。
 
 ## 一张流程图看懂全过程
 
 ```text
 安装 Skill
-   │  不生成密钥、不联网
+   │  初始化依赖可能访问 npm，不生成身份、不联系平台
    ▼
-identity ensure
-   │  本机生成并加密 Identity Key
+doctor
+   │  检查当前身份存储；不验证平台在线或长期持久性
+   ▼
+identity ensure（用户已请求创建身份且前置检查通过）
+   │  实际执行主机生成并加密 Identity Key；离线，不需要 R2/R4
    ▼
 LOCAL_IDENTITY_READY
    │  用户明确同意注册；Agent 签 EIP-712
@@ -61,6 +66,12 @@ node "<Skill目录>/bin/memo-agent-mainnet" identity status --json
 
 CLI 外层固定返回 `memo.agent-cli-result/2` envelope。先看顶层 `ok`；为 `false` 时按 `error.code` 处理。
 
+安装和检查请求应先执行 `doctor --json`，默认到此结束。依赖初始化的 `ready` 仅描述 `readyScope: "runtime-dependencies"`；仓库安装结果 `runtimeDependenciesReady: true`、`identityStorageChecked: false` 也不表示身份存储已经通过。`doctor` 顶层 `ok: true` 不等于 `data.ready: true`：应检查 `identityStorageReady`、`blockingChecks` 和 `guidance`。`platformConnectivityChecked: false` 表示没有联系平台，地址检查通过也不代表 API 可达。
+
+用户已明确请求创建身份、前置检查通过时，可以执行 `identity ensure --json` 并查看公开状态，无需重复确认同一授权。离线创建不需要真实 API 在线或开启 R2/R4。系统密钥库不可用时，检查服务、解锁或访问权限；已有身份丢失保护材料时恢复原材料，不更换包装密钥或重新生成身份。
+
+`env-master-key` 是管理员可显式配置的既有方案：环境变量是包装／解密输入，身份私钥仍加密落盘。它不是明文身份私钥，代码也不因该 provider 单独禁止注册。长期使用需管理好原保护材料和持久化；`doctor` 不验证这些长期条件，也不会自动生成主密钥。
+
 ## 2. “把 DID 的密钥给出来”应该怎么做
 
 只给公开材料，不给私钥：
@@ -76,6 +87,8 @@ CLI 外层固定返回 `memo.agent-cli-result/2` envelope。先看顶层 `ok`；
 ## 3. 把本地 DID 注册到平台
 
 ### 第一步：确认平台信息
+
+这一步属于后续注册。离线身份创建可先完成存储检查，不要求平台可达；但身份绑定部署环境，默认 `local` 身份不能直接跨环境复用。计划用于 preprod/production 时，应在创建前按 [安装手册](installation.zh-CN.md) 确定相应环境及合法 HTTPS origin，保持同一 installation ID 和状态根。
 
 向平台管理员确认：
 
@@ -263,16 +276,22 @@ node "<Skill目录>/bin/memo-agent-mainnet" operation reconcile op_... --json
 Codex：
 
 ```text
-$memo-agent-did-mainnet 先运行 doctor，再幂等确保本 installation 的本地 DID，最后只告诉我 DID、公开地址、状态和是否已注册。不要注册上链，不要创建 Pairing Grant，不要显示任何秘密或本地密钥文件。
+$memo-agent-did-mainnet 在我的本机或已明确指定的长期主机上完成依赖初始化并运行 doctor，报告身份存储检查结果和阻塞项。安装阶段不创建身份，不自行生成备用主密钥。
 ```
 
 Claude Code：
 
 ```text
-/memo-agent-did-mainnet 先运行 doctor，再幂等确保本 installation 的本地 DID，最后只告诉我 DID、公开地址、状态和是否已注册。不要注册上链，不要创建 Pairing Grant，不要显示任何秘密或本地密钥文件。
+/memo-agent-did-mainnet 在我的本机或已明确指定的长期主机上完成依赖初始化并运行 doctor，报告身份存储检查结果和阻塞项。安装阶段不创建身份，不自行生成备用主密钥。
 ```
 
 DeepSeek-in-Codex：使用与 Codex 相同的 `$memo-agent-did-mainnet` 提示词。纯网页/API 模式不能安全执行本地身份流程。
+
+确实需要创建身份时可以另行说；也可以在原安装请求中同时明确创建意图，检查通过后不必再确认同一授权：
+
+```text
+在我已选定的主机、部署环境和 installation 配置下，运行 doctor；前置检查通过后执行 identity ensure，并只显示 DID、公开地址、状态和是否已注册。不注册上链，不创建配对，不显示秘密；缺少原保护材料时停止，不生成替代密钥。
+```
 
 需要绑定时再单独说：
 

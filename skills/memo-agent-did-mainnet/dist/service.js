@@ -173,6 +173,11 @@ export class AgentDidService {
         return row;
     }
     doctor() {
+        let keyProvider = "unavailable";
+        try {
+            keyProvider = this.signer.providerName;
+        }
+        catch { /* Report storage failures through checks. */ }
         const checks = [
             { name: "node", ok: Number(process.versions.node.split(".")[0]) >= 22, value: process.versions.node },
             { name: "registryAdapter", ok: true, value: "memo-mainnet-erc4337-v0.7" },
@@ -182,12 +187,7 @@ export class AgentDidService {
             { name: "r4TestGrant", ok: hasLocalR4TestGrant() },
             { name: "masterKey", ok: Boolean(process.env.MEMO_AGENT_MAINNET_MASTER_KEY) },
             { name: "installationIdentity", ok: Boolean(this.config.installationId), value: this.config.installationId },
-            { name: "keyProvider", ok: true, value: (() => { try {
-                    return this.signer.providerName;
-                }
-                catch {
-                    return "unavailable";
-                } })() },
+            { name: "keyProvider", ok: keyProvider !== "unavailable", value: keyProvider },
             { name: "keyringAvailable", ok: this.signer.keyringAvailable() },
             { name: "secureStorageReady", ok: this.signer.secureStorageReady() },
         ];
@@ -195,7 +195,32 @@ export class AgentDidService {
             checks.push({ name: "stateStoreMode", ok: (statSync(this.config.dbPath).mode & 0o777) === 0o600, value: (statSync(this.config.dbPath).mode & 0o777).toString(8) });
         if (existsSync(this.config.keyStorePath))
             checks.push({ name: "keyStoreMode", ok: (statSync(this.config.keyStorePath).mode & 0o777) === 0o600, value: (statSync(this.config.keyStorePath).mode & 0o777).toString(8) });
-        return { mode: `memo-mainnet-${this.config.deploymentEnvironment}`, chainId: CHAIN_ID, ready: checks.filter((item) => ["node", "registryAdapter", "networkEgress", "dataDidDependency", "stateStoreMode", "keyStoreMode", "installationIdentity", "secureStorageReady"].includes(String(item.name))).every((item) => item.ok), checks };
+        const requiredChecks = ["node", "registryAdapter", "networkEgress", "dataDidDependency", "stateStoreMode", "keyStoreMode", "installationIdentity", "secureStorageReady"];
+        const blockingChecks = checks.filter((item) => requiredChecks.includes(String(item.name)) && !item.ok).map((item) => String(item.name));
+        const identityStorageReady = checks.find((item) => item.name === "secureStorageReady")?.ok === true;
+        const guidance = [
+            "Doctor does not contact the platform. The networkEgress check only validates local URL policy; it does not prove API connectivity. Offline identity creation does not require a reachable platform API or R2/R4 grants.",
+            "Storage readiness does not verify long-term persistence or backups. Use your own computer or an explicitly selected long-lived host with persistent identity state and recoverable access to its wrapping key.",
+        ];
+        if (!identityStorageReady) {
+            guidance.push("Identity storage is unavailable. Check that the OS credential store is running, unlocked and accessible to this session (Linux: Secret Service; macOS: Keychain; Windows: Credential Manager).");
+            if (existsSync(this.config.keyStorePath)) {
+                guidance.push("Preserve the existing identity state, provider and wrapping key. Restore access to the original protection material; do not generate replacement keys, switch providers or delete state to retry.");
+            }
+            else {
+                guidance.push("On a controlled host without an OS credential store, an administrator may explicitly supply the supported env-master-key wrapping input of at least 32 characters through a trusted environment. Do not generate it automatically or put it in chat, argv or logs. Persistent state and continued access to the same wrapping key are required for a long-lived identity.");
+            }
+        }
+        if (blockingChecks.some((name) => name === "stateStoreMode" || name === "keyStoreMode")) {
+            guidance.push("Identity state files require private 0600 permissions. Preserve the identity files while correcting storage permissions.");
+        }
+        if (blockingChecks.length > 0)
+            guidance.push("Resolve the listed blocking checks before requesting identity creation. Missing platform access or R2/R4 grants will not repair identity storage.");
+        return {
+            mode: `memo-mainnet-${this.config.deploymentEnvironment}`, chainId: CHAIN_ID,
+            ready: blockingChecks.length === 0, checks, identityStorageReady, blockingChecks,
+            platformConnectivityChecked: false, guidance,
+        };
     }
     ensureIdentity() {
         const existing = this.installation(false);

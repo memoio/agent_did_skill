@@ -13,12 +13,12 @@
       "interface": {
         "displayName": "MEMO Mainnet Agent DID",
         "shortDescription": "Create and connect a local chain-985 Agent DID",
-        "longDescription": "Create an Agent DID locally, keep its private key in the operating-system credential store, register through the MEMO Agent DID platform, and approve wallet management relationships.",
+        "longDescription": "Check identity storage on your computer or an explicitly selected long-lived host, then create a locally encrypted Agent DID when requested. Register through the MEMO Agent DID platform and approve wallet management relationships.",
         "developerName": "MEMO Agent DID",
         "category": "Developer Tools",
         "capabilities": ["Read", "Write"],
         "defaultPrompt": [
-          "Use the MEMO Mainnet Agent DID skill to check secure storage, ensure this installation's local DID, and show only public identity status."
+          "Use $memo-agent-did-mainnet on my computer or my explicitly selected long-lived host to finish runtime setup and check identity storage with doctor; report blockers without creating an identity or generating a fallback master key."
         ],
         "brandColor": "#4455DD"
       }

@@ -67,11 +67,11 @@ async function main() {
       target,
       destination,
       backupPath: backupPath || null,
+      runtimeDependenciesReady: true,
+      identityStorageChecked: false,
       generatedIdentity: false,
       next: [
-        `node "${resolve(destination, "scripts", "setup-client.mjs")}"`,
         `node "${resolve(destination, "bin", "memo-agent-mainnet")}" doctor --json`,
-        `node "${resolve(destination, "bin", "memo-agent-mainnet")}" identity ensure --json`,
       ],
     });
   } catch (error) {
@@ -145,6 +145,7 @@ function emit(options, payload) {
   }
   process.stdout.write(`${payload.dryRun ? "预计安装到" : "已安装到"}：${payload.destination}\n`);
   if (payload.backupPath) process.stdout.write(`旧版本备份：${payload.backupPath}\n`);
+  if (!payload.dryRun) process.stdout.write("Skill 文件和运行依赖已安装；身份密钥存储尚未检查，请继续运行 doctor。\n");
   process.stdout.write("安装过程没有创建 DID、密钥或链上交易。\n");
   for (const command of payload.next || []) process.stdout.write(`下一步：${command}\n`);
 }

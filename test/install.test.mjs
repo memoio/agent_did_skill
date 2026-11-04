@@ -37,6 +37,7 @@ test("standalone runtime initialization uses the lockfile, skips lifecycle hooks
     return { status: 0 };
   } });
   assert.equal(result.ready, true);
+  assert.equal(result.readyScope, "runtime-dependencies");
   assert.equal(result.generatedIdentity, false);
   assert.deepEqual(calls[0].args, ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--legacy-peer-deps"]);
   assert.equal(calls[0].options.cwd, root);
@@ -49,6 +50,20 @@ test("incomplete distribution stops before npm or runtime execution", () => {
   const root = fixture("incomplete");
   rmSync(resolve(root, "dist/cli.js"));
   assert.throws(() => setupRuntime({ root, run: () => assert.fail("must not execute") }), { code: "RUNTIME_PACKAGE_INCOMPLETE" });
+});
+
+test("runtime setup failures keep the JSON schema and identify their readiness scope", () => {
+  const root = fixture("incomplete-cli");
+  writeFileSync(resolve(root, "package.json"), '{"type":"module"}');
+  mkdirSync(resolve(root, "scripts"));
+  cpSync(resolve(bundle, "skills/memo-agent-did-mainnet/scripts/setup-runtime.mjs"), resolve(root, "scripts/setup-runtime.mjs"));
+  rmSync(resolve(root, "dist/cli.js"));
+  const result = spawnSync(process.execPath, [resolve(root, "scripts/setup-runtime.mjs"), "--json"], { encoding: "utf8" });
+  assert.equal(result.status, 1);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    schema: "memo.agent-runtime-setup/1", readyScope: "runtime-dependencies", ready: false, generatedIdentity: false,
+    error: { code: "RUNTIME_PACKAGE_INCOMPLETE", message: "Missing or unreadable dist/cli.js; reinstall the complete Skill from GitHub." },
+  });
 });
 
 test("dependency failures stop before importing the runtime and do not expose subprocess output", () => {

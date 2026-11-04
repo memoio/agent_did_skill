@@ -15,6 +15,7 @@ Object.assign(env, {
   MEMO_AGENT_MAINNET_INSTALLATION_ID: "installation-smoke",
   MEMO_AGENT_MAINNET_ENVIRONMENT: "local",
   MEMO_AGENT_MAINNET_API_URL: "http://127.0.0.1:1",
+  MEMO_AGENT_MAINNET_KEY_PROVIDER: "env-master-key",
 });
 
 function run(script, args = []) {
@@ -35,12 +36,17 @@ try {
   for (const root of [standalone, linked]) {
     const setup = run(resolve(root, "scripts/setup-runtime.mjs"), ["--json"]);
     assert.equal(setup.ready, true);
+    assert.equal(setup.readyScope, "runtime-dependencies");
     assert.equal(setup.generatedIdentity, false);
     assert.equal(existsSync(state), false);
   }
   const destination = resolve(temporary, "installed Skill");
   const installed = run(resolve(bundle, "scripts/install.mjs"), ["--target", "runtime", "--dest", destination, "--json"]);
   assert.equal(installed.installed, true);
+  assert.equal(installed.runtimeDependenciesReady, true);
+  assert.equal(installed.identityStorageChecked, false);
+  assert.equal(installed.next.length, 1);
+  assert.match(installed.next[0], /doctor --json$/);
   assert.equal(installed.generatedIdentity, false);
   assert.equal(existsSync(state), false);
   writeFileSync(resolve(destination, "previous-release-marker"), "previous");
@@ -48,11 +54,17 @@ try {
   assert.equal(readFileSync(resolve(upgraded.backupPath, "previous-release-marker"), "utf8"), "previous");
   assert.equal(existsSync(resolve(destination, "previous-release-marker")), false);
   assert.equal(existsSync(state), false);
+  const doctor = run(resolve(destination, "bin/memo-agent-mainnet"), ["doctor", "--json"]);
+  assert.equal(doctor.ok, true);
+  assert.equal(doctor.data.ready, false);
+  assert.equal(doctor.data.identityStorageReady, false);
+  assert.deepEqual(doctor.data.blockingChecks, ["secureStorageReady"]);
+  assert.equal(doctor.data.platformConnectivityChecked, false);
   const status = run(resolve(destination, "bin/memo-agent-mainnet"), ["identity", "status", "--json"]);
   assert.equal(status.ok, true);
   assert.equal(status.data.exists, false);
   assert.equal(existsSync(resolve(state, "agents/installation-smoke/keys.enc.json")), false);
-  process.stdout.write(JSON.stringify({ passed: true, standalone: true, symlink: true, repeatedSetup: true, upgradeBackup: true, cli: true, generatedIdentity: false }) + "\n");
+  process.stdout.write(JSON.stringify({ passed: true, standalone: true, symlink: true, repeatedSetup: true, upgradeBackup: true, cli: true, storageBlockerReported: true, generatedIdentity: false }) + "\n");
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }
