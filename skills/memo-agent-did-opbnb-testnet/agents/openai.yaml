@@ -1,0 +1,4 @@
+interface:
+  display_name: "MEMO opBNB Testnet Agent DID"
+  short_description: "Register and manage an isolated chain-5611 Agent DID"
+  default_prompt: "Use $memo-agent-did-opbnb-testnet to inspect this test installation's public identity and opBNB chain status."

@@ -1,0 +1,10 @@
+{
+  "name": "@memo/agent-did-opbnb-testnet-skill",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=22.5.0"},
+  "bin": {"memo-agent-opbnb-testnet": "bin/memo-agent-opbnb-testnet"},
+  "scripts": {"check": "node --check src/cli.mjs"},
+  "dependencies": {"@napi-rs/keyring":"2.1.2","ethers":"6.17.0"}
+}
