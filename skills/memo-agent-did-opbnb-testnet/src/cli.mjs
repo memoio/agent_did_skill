@@ -1,6 +1,6 @@
 import { Entry } from "@napi-rs/keyring";
 import { Wallet, TypedDataEncoder, getAddress, computeAddress, keccak256, verifyMessage } from "ethers";
-import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync, lstatSync, openSync, closeSync, fsyncSync, unlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync, lstatSync, openSync, closeSync, fsyncSync, unlinkSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
@@ -9,8 +9,7 @@ import { offerOptions, verifyPairingFile, verifyPairingRecord, handleHash } from
 const chainId=5611;
 const genesis="0x51fa57729dfb1c27542c21b06cb72a0459c57440ceb43a465dae1307cd04fe80";
 const root=resolve(process.env.MEMO_AGENT_OPBNB_HOME||resolve(homedir(),".memo-agent-opbnb-testnet"));
-const mainnet=resolve(process.env.MEMO_AGENT_MAINNET_HOME||resolve(homedir(),".memo-agent-mainnet"));
-if(root===mainnet||root.startsWith(`${mainnet}/`))throw Error("STATE_NAMESPACE_CONFLICT");
+if(existsSync(root)&&!existsSync(resolve(root,"installation-id"))&&readdirSync(root).length)throw Error("STATE_NAMESPACE_CONFLICT");
 mkdirSync(root,{recursive:true,mode:0o700});chmodSync(root,0o700);
 const marker=resolve(root,"installation-id");
 if(!existsSync(marker))writeFileSync(marker,randomUUID(),{mode:0o600,flag:"wx"});

@@ -20,19 +20,12 @@ jobs:
         with:
           node-version: '22.22.3'
           cache: npm
-          cache-dependency-path: |
-            skills/memo-agent-did-mainnet/package-lock.json
-            skills/memo-agent-did-opbnb-testnet/package-lock.json
-      - name: Install development dependencies without lifecycle hooks
-        run: npm ci --ignore-scripts --no-audit --no-fund
-        working-directory: skills/memo-agent-did-mainnet
+          cache-dependency-path: skills/memo-agent-did-opbnb-testnet/package-lock.json
       - name: Install opBNB Skill dependencies without lifecycle hooks
         run: npm ci --ignore-scripts --no-audit --no-fund
         working-directory: skills/memo-agent-did-opbnb-testnet
       - name: Build, test, verify and install isolated copies
         run: npm run check
-      - name: Verify committed runtime matches its source
-        run: git diff --exit-code -- skills/memo-agent-did-mainnet/dist
       - name: Verify discovery by the generic Skill installer
         env:
           DISABLE_TELEMETRY: '1'

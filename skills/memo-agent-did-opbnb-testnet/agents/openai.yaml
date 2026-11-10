@@ -1,4 +1,4 @@
 interface:
   display_name: "MEMO opBNB Testnet Agent DID"
-  short_description: "Register and manage an isolated chain-5611 Agent DID"
-  default_prompt: "Use $memo-agent-did-opbnb-testnet to inspect this test installation's public identity and opBNB chain status."
+  short_description: "Register an opBNB Agent DID and create Offer files"
+  default_prompt: "使用 $memo-agent-did-opbnb-testnet 检查当前 Agent 是否已在 opBNB 测试链注册且没有有效管理关系；如具备条件，请根据我提供的权限、最长期限、文件有效期和新文件路径生成 Agent Offer，并说明怎样安全交给钱包用户。缺少参数时先询问，不要在安装时自动创建 Offer。"

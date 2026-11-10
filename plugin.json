@@ -1,26 +1,20 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-  "name": "memo-agent-did-mainnet",
-  "version": "2.0.0-preprod",
-  "description": "Create and operate a locally controlled MEMO chain-985 Agent DID without exporting its private key.",
-  "author": {
-    "name": "MEMO Agent DID"
-  },
-  "keywords": ["agent-did", "identity", "eip-712", "erc-4337", "memo"],
+  "name": "memo-agent-did-opbnb-testnet",
+  "version": "0.1.0",
+  "description": "Register and manage an Agent DID on opBNB Testnet chain 5611.",
+  "author": { "name": "MEMO Agent DID" },
+  "keywords": ["agent-did", "identity", "eip-712", "opbnb"],
   "extensions": {
     "com.openai": {
-      "onboardingSkill": "./skills/memo-agent-did-mainnet/SKILL.md",
+      "onboardingSkill": "./skills/memo-agent-did-opbnb-testnet/SKILL.md",
       "interface": {
-        "displayName": "MEMO Mainnet Agent DID",
-        "shortDescription": "Create and connect a local chain-985 Agent DID",
-        "longDescription": "Check identity storage on your computer or an explicitly selected long-lived host, then create a locally encrypted Agent DID when requested. Register through the MEMO Agent DID platform and approve wallet management relationships.",
+        "displayName": "MEMO opBNB Testnet Agent DID",
+        "shortDescription": "Register an opBNB Agent DID and create Offer files",
         "developerName": "MEMO Agent DID",
         "category": "Developer Tools",
         "capabilities": ["Read", "Write"],
-        "defaultPrompt": [
-          "Use $memo-agent-did-mainnet on my computer or my explicitly selected long-lived host to finish runtime setup and check identity storage with doctor; report blockers without creating an identity or generating a fallback master key."
-        ],
-        "brandColor": "#4455DD"
+        "defaultPrompt": ["使用 $memo-agent-did-opbnb-testnet 检查当前 Agent 的 opBNB 5611 注册与管理状态；若已注册且未绑定，请说明生成 Offer 文件还需要哪些参数。"]
       }
     }
   }

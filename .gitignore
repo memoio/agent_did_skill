@@ -1,6 +1,4 @@
 node_modules/
-skills/memo-agent-did-mainnet/node_modules/
-skills/memo-agent-did-mainnet/*.tgz
 .data/
 *.log
 .DS_Store
@@ -11,6 +9,6 @@ skills/memo-agent-did-mainnet/*.tgz
 *.sqlite-*
 keys.enc.json
 .installation-id
-.memo-agent-mainnet/
+.memo-agent-opbnb-testnet/
 pairing-handle*.txt
 *.tgz

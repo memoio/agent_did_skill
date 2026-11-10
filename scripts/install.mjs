@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const bundleRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const skillName = "memo-agent-did-mainnet";
+const skillName = "memo-agent-did-opbnb-testnet";
 const source = resolve(bundleRoot, "skills", skillName);
 
 main().catch((error) => {
@@ -50,17 +50,13 @@ async function main() {
       errorOnExist: true,
       filter: (path) => !["node_modules", ".data", ".git", ".DS_Store"].includes(basename(path)),
     });
-    const install = spawnSync(process.execPath, [resolve(destination, "scripts", "setup-runtime.mjs"), "--json"], {
+    const install = spawnSync("npm", ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], {
       cwd: destination,
       encoding: "utf8",
+      timeout: 120_000,
     });
-    let runtime;
-    try { runtime = JSON.parse(install.stdout); } catch { /* Report a bounded, non-secret error below. */ }
-    if (install.error || install.status !== 0 || runtime?.ready !== true) {
-      throw new Error(`${runtime?.error?.code || "RUNTIME_SETUP_FAILED"}: ${runtime?.error?.message || "Runtime setup failed; run scripts/setup-runtime.mjs to diagnose."}`);
-    }
-    chmodSync(resolve(destination, "bin", "memo-agent-mainnet"), 0o755);
-    chmodSync(resolve(destination, "scripts", "setup-client.mjs"), 0o755);
+    if (install.error || install.status !== 0) throw new Error("RUNTIME_DEPENDENCY_INSTALL_FAILED: npm ci did not complete; check npm registry access.");
+    chmodSync(resolve(destination, "bin", "memo-agent-opbnb-testnet"), 0o755);
 
     emit(options, {
       installed: true,
@@ -68,10 +64,10 @@ async function main() {
       destination,
       backupPath: backupPath || null,
       runtimeDependenciesReady: true,
-      identityStorageChecked: false,
       generatedIdentity: false,
       next: [
-        `node "${resolve(destination, "bin", "memo-agent-mainnet")}" doctor --json`,
+        "Configure MEMO_AGENT_OPBNB_API_URL and the two pinned Registry addresses before registration.",
+        `node "${resolve(destination, "bin", "memo-agent-opbnb-testnet")}" identity status`,
       ],
     });
   } catch (error) {
@@ -145,7 +141,7 @@ function emit(options, payload) {
   }
   process.stdout.write(`${payload.dryRun ? "预计安装到" : "已安装到"}：${payload.destination}\n`);
   if (payload.backupPath) process.stdout.write(`旧版本备份：${payload.backupPath}\n`);
-  if (!payload.dryRun) process.stdout.write("Skill 文件和运行依赖已安装；身份密钥存储尚未检查，请继续运行 doctor。\n");
+  if (!payload.dryRun) process.stdout.write("Skill 文件和运行依赖已安装；尚未创建或注册 DID。\n");
   process.stdout.write("安装过程没有创建 DID、密钥或链上交易。\n");
   for (const command of payload.next || []) process.stdout.write(`下一步：${command}\n`);
 }
