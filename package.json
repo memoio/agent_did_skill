@@ -6,8 +6,9 @@
   "scripts": {
     "build": "npm run build --prefix skills/memo-agent-did-mainnet",
     "test": "npm test --prefix skills/memo-agent-did-mainnet && node --test test/*.test.mjs",
+    "test:opbnb": "npm run check --prefix skills/memo-agent-did-opbnb-testnet",
     "test:install": "node scripts/smoke-install.mjs",
     "verify": "node scripts/verify-package.mjs",
-    "check": "npm run build && npm test && npm run verify && npm run test:install"
+    "check": "npm run build && npm test && npm run test:opbnb && npm run verify && npm run test:install"
   }
 }

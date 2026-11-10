@@ -4,6 +4,24 @@
 
 仓库：<https://github.com/memoio/agent_did_skill>。当前版本为 `2.0.0-preprod`，许可标记为 `UNLICENSED`。本仓库包含独立 Agent 端 Skill，不需要后端源码；链上操作需要管理员提供可访问的平台 API。
 
+## opBNB 测试链 Skill（chain 5611）
+
+`feat/opbnb-testnet-skill` 分支另含独立的 [`memo-agent-did-opbnb-testnet`](skills/memo-agent-did-opbnb-testnet/SKILL.md)。它用于 Agent DID 注册、Invitation/Offer 配对、管理关系双签审批、身份生命周期和运行实例测试。主网 chain 985 Skill 的身份目录与系统密钥命名空间不能复用。
+
+```sh
+git clone --branch feat/opbnb-testnet-skill --single-branch https://github.com/memoio/agent_did_skill.git
+cd agent_did_skill/skills/memo-agent-did-opbnb-testnet
+npm ci --omit=dev
+```
+
+运行前，从平台已核验的部署清单取得 chain 5611 的两份合约地址，并设置 `MEMO_AGENT_OPBNB_API_URL`、`MEMO_AGENT_OPBNB_DID_REGISTRY`、`MEMO_AGENT_OPBNB_MANAGEMENT_REGISTRY`。本机 API 示例为 `http://127.0.0.1:4273`；跨机器 Agent 应使用可访问的 HTTPS 平台地址。`identity ensure` 仅在 Agent 本机创建隔离身份；`register <profile.json> <document.json>` 才会请求平台提交真实测试链交易。
+
+给具备本地终端执行能力的 Agent 的安装提示词：
+
+> 请从 memoio/agent_did_skill 的 `feat/opbnb-testnet-skill` 分支安装 `skills/memo-agent-did-opbnb-testnet`，执行 `npm ci --omit=dev`，检查本机密钥库与独立状态目录，然后运行 `identity status`。核对平台 API、chain ID 5611 和两份合约地址。此阶段不要创建身份或提交链上交易；向我报告检查结果。
+
+配对时在 Console 选择新 Agent Invitation、已有 Agent Offer 或已知 DID。Agent 用 `binding pending`、`binding inspect <请求ID>` 审核同一管理意图，再在用户明确要求批准后运行 `binding approve <请求ID>`。Skill 不接收平台 Gas 账户私钥；Agent 身份私钥保存在本机系统密钥库。详细命令与约束见上面的 Skill 文件。
+
 ## 直接告诉 Agent 安装
 
 将下面这句话发给 Codex、Claude Code 或支持本地 Skill 的其他 Agent：

@@ -1,9 +1,10 @@
 import { Entry } from "@napi-rs/keyring";
 import { Wallet, TypedDataEncoder, getAddress, computeAddress, keccak256, verifyMessage } from "ethers";
-import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync, lstatSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync, lstatSync, openSync, closeSync, fsyncSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolve, dirname } from "node:path";
+import { resolve } from "node:path";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
+import { offerOptions, verifyPairingFile, verifyPairingRecord, handleHash } from "./pairing.mjs";
 
 const chainId=5611;
 const genesis="0x51fa57729dfb1c27542c21b06cb72a0459c57440ceb43a465dae1307cd04fe80";
@@ -84,7 +85,9 @@ function inspectManagement(details,w,config){
     scopesHash=`0x${createHash("sha256").update(JSON.stringify([...new Set(scopes)].sort())).digest("hex")}`;
     if(scopesHash!==intent.message.scopesHash)throw Error("SCOPES_HASH_MISMATCH");
     if(details.display?.discoverable!==intent.message.discoverable)throw Error("DISCOVERABILITY_MISMATCH");
+    if(intent.actionType==="ActivateRelationship"&&details.display?.termSeconds!==undefined&&BigInt(intent.message.expiresAt)-BigInt(intent.message.issuedAt)!==BigInt(details.display.termSeconds))throw Error("TERM_MISMATCH");
   }
+  if(intent.actionType==="ActivateRelationship"&&!intent.requiredSigners.some(x=>x.role==="manager"&&getAddress(x.address)===getAddress(intent.message.manager)))throw Error("MANAGER_ROLE_MISMATCH");
   return {intentId:intent.intentId,actionType:intent.actionType,digest:intent.digest,agent:intent.message.agent,manager:intent.message.manager??intent.message.oldManager,scopes:scopes??null,scopesHash:scopesHash??null,issuedAt:intent.message.issuedAt,expiresAt:intent.message.expiresAt,deadline:intent.message.deadline,discoverable:intent.message.discoverable,newManager:intent.message.newManager??null,reason:details.display?.reason??null};
 }
 async function session(w){
@@ -105,11 +108,6 @@ function readJson(path){
   if(!stat.isFile()||stat.isSymbolicLink()||stat.size>65536)throw Error("INVALID_INPUT_FILE");
   return JSON.parse(readFileSync(target,"utf8"));
 }
-function writeJson(path,data){
-  const target=resolve(path);mkdirSync(dirname(target),{recursive:true,mode:0o700});
-  writeFileSync(target,JSON.stringify(data,null,2)+"\n",{mode:0o600,flag:"wx"});chmodSync(target,0o600);
-  return target;
-}
 function canonical(value){
   if(Array.isArray(value))return `[${value.map(canonical).join(",")}]`;
   if(value&&typeof value==="object")return `{${Object.keys(value).sort().map(k=>`${JSON.stringify(k)}:${canonical(value[k])}`).join(",")}}`;
@@ -117,10 +115,7 @@ function canonical(value){
 }
 function shaJson(value){return `0x${createHash("sha256").update(canonical(value)).digest("hex")}`;}
 function hashIdentifier(value){return keccak256(Buffer.from(value,"utf8"));}
-function checkedPairing(value,kind,config){
-  if(value?.schema!=="memo.agent-pairing-package/2"||value.kind!==kind||value.platformOrigin!==platform()||value.chainId!==5611||getAddress(value.didRegistry)!==getAddress(config.contracts.didRegistry.address)||getAddress(value.managementRegistry)!==getAddress(config.contracts.managementRegistry.address)||typeof value.handle!=="string"||value.handle.length<32||Date.parse(value.expiresAt)<Date.now())throw Error("PAIRING_PACKAGE_MISMATCH");
-  return value;
-}
+function checkedPairing(value,kind,config,allowExpired=false){return verifyPairingFile(value,kind,platform(),config,allowExpired);}
 async function registryAction(actionType,payload,w,did,config,token){
   const intent=await api("registry-action-intents",{actionType,...payload},token);
   verifyIntent(intent,actionType,w.address,config);
@@ -145,6 +140,54 @@ async function signChallenge(challenge){
   try{writeFileSync(resolve(consumed,nonceHash),String(challenge.expiresAt),{mode:0o600,flag:"wx"});}catch(error){if(error.code==="EEXIST")throw Error("NONCE_REPLAYED");throw error;}
   const message=JSON.stringify([did,active.instance_id,...names.map(k=>challenge[k])]);
   return {schema:"memo.agent-auth-response/1",agentDid:did,instanceId:active.instance_id,publicKey:active.public_key,challenge,nonceHash,signature:await instance.signMessage(message),message};
+}
+async function createOffer(args){
+  const options=offerOptions(args),{wallet:w,did}=wallet(),config=await pinned(),token=await session(w);
+  const identity=await api(`agent-dids/${encodeURIComponent(did)}`);
+  if(identity.status!=="ACTIVE")throw Error("IDENTITY_NOT_ACTIVE");
+  const filename=resolve(options.filename),handle=randomBytes(32).toString("hex"),fd=openSync(filename,"wx",0o600);
+  let complete=false;
+  try{
+    const exchange=await api("pairing-offers",{handleHash:handleHash(handle),maxScopes:options.maxScopes,maxTermSeconds:options.maxTermSeconds,ttlSeconds:options.ttlSeconds,discoverable:options.discoverable},token,randomUUID());
+    const file={schema:"memo.agent-pairing-package/2",kind:"agent-offer",exchangeId:exchange.exchangeId,handle,platformOrigin:platform(),chainId,didRegistry:config.contracts.didRegistry.address,managementRegistry:config.contracts.managementRegistry.address,agentDid:did,maxScopes:options.maxScopes,maxTermSeconds:options.maxTermSeconds,discoverable:options.discoverable,expiresAt:exchange.expiresAt};
+    verifyPairingRecord(file,exchange);
+    writeFileSync(fd,JSON.stringify(file,null,2)+"\n");fsyncSync(fd);complete=true;
+    return {exchangeId:exchange.exchangeId,agentDid:did,offerFile:filename,maxScopes:options.maxScopes,maxTermSeconds:options.maxTermSeconds,discoverable:options.discoverable,expiresAt:exchange.expiresAt};
+  }finally{closeSync(fd);if(!complete)unlinkSync(filename);}
+}
+async function agentRequest(command,id){
+  const {wallet:w,did}=wallet(),config=await pinned(),token=await session(w);
+  if(command==="next"){
+    const response=await api("agent-requests/next",undefined,token),request=response.request;
+    return {request:request?{requestId:request.id,agentDid:request.agent_did,state:request.state}:null};
+  }
+  if(!id)throw Error("AGENT_REQUEST_ID_REQUIRED");
+  const response=await api(`agent-requests/${encodeURIComponent(id)}`,undefined,token),request=response.request;
+  if(!request||request.id!==id||request.agent_did!==did||request.intent_id!==request.intent?.intentId)throw Error("AGENT_REQUEST_MISMATCH");
+  const preview=inspectManagement({intent:request.intent,display:{scopes:request.scopes,termSeconds:Number(request.term_seconds),discoverable:request.discoverable}},w,config);
+  if(command==="inspect")return {requestId:id,did,...preview};
+  if(command==="reject")return api(`agent-requests/${encodeURIComponent(id)}/decision`,{decision:"reject",reason:"declined"},token);
+  if(command!=="approve")throw Error("UNKNOWN_AGENT_REQUEST_COMMAND");
+  const signature=await w.signTypedData(request.intent.domain,request.intent.types,request.intent.message);
+  return api(`agent-requests/${encodeURIComponent(id)}/decision`,{decision:"approve",signature},token);
+}
+async function binding(command,id){
+  const {wallet:w,did}=wallet(),config=await pinned(),token=await session(w);
+  const pending=(await api("management-intents/pending",undefined,token)).filter(item=>item.intent.actionType==="ActivateRelationship");
+  if(command==="pending")return pending.map(item=>({source:item.source,requestId:item.requestId,draftId:item.draftId,did,...inspectManagement(item,w,config)}));
+  if(!id)throw Error("BINDING_REQUEST_ID_REQUIRED");
+  const item=pending.find(value=>value.requestId===id||value.intent.intentId===id);
+  if(!item)throw Error("BINDING_REQUEST_NOT_PENDING");
+  if(item.draftId)return agentRequest(command,item.draftId);
+  const details=await api(`management-intents/${encodeURIComponent(item.intent.intentId)}`,undefined,token);
+  const preview={source:"known-did",requestId:item.intent.intentId,did,...inspectManagement(details,w,config)};
+  if(command==="inspect")return preview;
+  if(command==="reject")throw Error("KNOWN_DID_REJECTION_NOT_SUPPORTED");
+  if(command!=="approve")throw Error("UNKNOWN_BINDING_COMMAND");
+  const signature=await w.signTypedData(details.intent.domain,details.intent.types,details.intent.message);
+  await api(`management-intents/${encodeURIComponent(item.intent.intentId)}/signatures`,{role:"agent",address:w.address,signature},token);
+  const operation=await api("management-actions",{intentId:item.intent.intentId},token,item.intent.intentId);
+  return {...preview,operation};
 }
 async function run(args){
   const [group,command,...rest]=args;
@@ -196,37 +239,22 @@ async function run(args){
     const payload=command==="update-profile"?{profile:readJson(rest[0])}:command==="update-document"?{document:readJson(rest[0])}:{};
     return registryAction(map[command],payload,w,did,config,token);
   }
-  if(group==="pair"&&command==="offer"&&rest[0]==="create"&&rest[1]){
-    const {wallet:w,did}=wallet(),config=await pinned(),token=await session(w);
-    const identity=await api(`agent-dids/${encodeURIComponent(did)}`);if(identity.status!=="ACTIVE")throw Error("IDENTITY_NOT_ACTIVE");
-    const maxScopes=(rest[2]||"agent.read").split(",").map(s=>s.trim()).filter(Boolean),maxTermSeconds=Number(rest[3]||30)*86400,ttlSeconds=Number(rest[4]||900);
-    const handle=randomBytes(32).toString("base64url"),handleHash=createHash("sha256").update(handle).digest("hex");
-    const exchange=await api("pairing-offers",{handleHash,maxScopes,maxTermSeconds,ttlSeconds},token,`offer:${handleHash.slice(0,40)}`);
-    const file={schema:"memo.agent-pairing-package/2",kind:"agent-offer",exchangeId:exchange.exchangeId,handle,platformOrigin:platform(),chainId,didRegistry:config.contracts.didRegistry.address,managementRegistry:config.contracts.managementRegistry.address,agentDid:did,maxScopes,maxTermSeconds,discoverable:false,expiresAt:exchange.expiresAt};
-    const path=writeJson(rest[1],file);return {exchangeId:exchange.exchangeId,agentDid:did,offerFile:path,expiresAt:exchange.expiresAt};
-  }
+  if(group==="pair"&&command==="offer"&&rest[0]==="create")return createOffer(rest.slice(1));
   if(group==="pair"&&command==="invitation"&&rest[0]==="accept"&&rest[1]&&rest[2]&&rest[3]){
-    const {wallet:w,did}=wallet(),config=await pinned(),token=await session(w),file=checkedPairing(readJson(rest[1]),"platform-invitation",config);
-    const inspected=await api("pairing-invitations/inspect",{exchangeId:file.exchangeId,handle:file.handle},token);
-    if(JSON.stringify(inspected.maxScopes)!==JSON.stringify(file.maxScopes)||Number(inspected.maxTermSeconds)!==Number(file.maxTermSeconds)||Boolean(inspected.discoverable)!==Boolean(file.discoverable))throw Error("PAIRING_PACKAGE_MISMATCH");
-    await api(`pairing-invitations/${encodeURIComponent(file.exchangeId)}/claim`,{handle:file.handle},token);
+    const {wallet:w,did}=wallet(),config=await pinned(),token=await session(w),file=checkedPairing(readJson(rest[1]),"platform-invitation",config,true);
+    try{verifyPairingRecord(file,await api("pairing-invitations/inspect",{exchangeId:file.exchangeId,handle:file.handle},token));}
+    catch(error){if(error.message!=="PAIRING_INVALID_OR_EXPIRED")throw error;}
+    const claimed=await api(`pairing-invitations/${encodeURIComponent(file.exchangeId)}/claim`,{handle:file.handle},token);
+    verifyPairingRecord(file,claimed,["CLAIMED"]);
+    if(claimed.agentDid!==did)throw Error("PAIRING_AGENT_MISMATCH");
     let registered=false;
     try{const identity=await api(`agent-dids/${encodeURIComponent(did)}`);registered=identity.status==="ACTIVE";}catch(error){if(error.message!=="DID_NOT_FOUND")throw error;}
     if(!registered){const result=await run(["register",rest[2],rest[3]]);if(result.state!=="CONFIRMED")return {exchangeId:file.exchangeId,registration:result,state:"WAITING_REGISTRATION"};}
     return api(`pairing-invitations/${encodeURIComponent(file.exchangeId)}/complete`,{},token);
   }
   if(group==="pair"&&command==="status"&&rest[0]){const {wallet:w}=wallet();return api(`pairing-exchanges/${encodeURIComponent(rest[0])}`,undefined,await session(w));}
-  if(group==="agent-request"&&["next","inspect","approve","reject"].includes(command)){
-    const {wallet:w,did}=wallet(),config=await pinned(),token=await session(w);
-    const response=await api("agent-requests/next",undefined,token),request=response.request;
-    if(command==="next")return {request:request?{requestId:request.id,agentDid:request.agent_did,state:request.state}:null};
-    if(!request||request.id!==rest[0])throw Error("AGENT_REQUEST_NOT_PENDING");
-    const preview=inspectManagement({intent:request.intent,display:{scopes:request.scopes,discoverable:request.discoverable}},w,config);
-    if(command==="inspect")return {requestId:request.id,did,...preview};
-    if(command==="reject")return api(`agent-requests/${encodeURIComponent(request.id)}/decision`,{decision:"reject",reason:rest[1]||"declined"},token);
-    const signature=await w.signTypedData(request.intent.domain,request.intent.types,request.intent.message);
-    return api(`agent-requests/${encodeURIComponent(request.id)}/decision`,{decision:"approve",signature},token);
-  }
+  if(group==="binding"&&["pending","inspect","approve","reject"].includes(command))return binding(command,rest[0]);
+  if(group==="agent-request"&&["next","inspect","approve","reject"].includes(command))return agentRequest(command,rest[0]);
   if(group==="instance"&&command==="create"&&rest[0]){
     const {wallet:w,did}=wallet();await pinned();const token=await session(w);
     const identity=await api(`agent-dids/${encodeURIComponent(did)}`);if(identity.status!=="ACTIVE")throw Error("IDENTITY_NOT_ACTIVE");
@@ -246,7 +274,7 @@ async function run(args){
     return {passed:verifyMessage(proof.message,proof.signature)===computeAddress(proof.publicKey),instanceId:proof.instanceId,nonceHash:proof.nonceHash};
   }
   if(group==="operation"&&command){const {wallet:w}=wallet();return api(`operations/${encodeURIComponent(command)}`,undefined,await session(w));}
-  throw Error("USAGE: identity ensure|status|update-profile <file>|update-document <file>|suspend|resume|revoke|self-test; register <profile> <document>; pair offer create <file> [scopes] [maxDays] [ttlSeconds]; pair invitation accept <file> <profile> <document>; agent-request next|inspect|approve|reject <requestId>; instance create|list|revoke; auth sign <challenge.json>; management pending|inspect|approve|end; operation <id>");
+  throw Error("USAGE: identity ensure|status|update-profile <file>|update-document <file>|suspend|resume|revoke|self-test; register <profile> <document>; pair offer create <new-file> <scopes-csv> <max-days> <ttl-seconds>; pair invitation accept <file> <profile> <document>; binding pending|inspect <requestId>|approve <requestId>|reject <requestId>; agent-request next|inspect|approve|reject <requestId>; instance create|list|revoke; auth sign <challenge.json>; management pending|inspect|approve|end; operation <id>");
 }
 try{const data=await run(process.argv.slice(2));process.stdout.write(JSON.stringify({schema:"memo.agent-opbnb-cli-result/1",ok:true,data})+"\n");}
 catch(error){process.stdout.write(JSON.stringify({schema:"memo.agent-opbnb-cli-result/1",ok:false,error:{code:error.message||"OPERATION_FAILED"}})+"\n");process.exitCode=1;}
