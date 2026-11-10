@@ -7,10 +7,10 @@ const canonical=value=>Array.isArray(value)?`[${value.map(canonical).join(",")}]
 export function expectedInvitationSetup(file){
   return {
     schema:"memo.agent-setup/1",
-    skill:{name:"memo-agent-did-opbnb-testnet",repository:"https://github.com/memoio/agent_did_skill.git",ref:"feat/opbnb-testnet-skill",directory:"skills/memo-agent-did-opbnb-testnet"},
+    skill:{name:"memo-agent-did-opbnb-testnet",repository:"https://github.com/memoio/agent_did_skill.git",ref:"main",directory:"skills/memo-agent-did-opbnb-testnet"},
     environment:{MEMO_AGENT_OPBNB_API_URL:file.platformOrigin,MEMO_AGENT_OPBNB_DID_REGISTRY:file.didRegistry,MEMO_AGENT_OPBNB_MANAGEMENT_REGISTRY:file.managementRegistry},
     commands:[
-      "git clone --branch feat/opbnb-testnet-skill --single-branch https://github.com/memoio/agent_did_skill.git",
+      "git clone --branch main --single-branch https://github.com/memoio/agent_did_skill.git",
       "cd agent_did_skill/skills/memo-agent-did-opbnb-testnet && npm ci --omit=dev",
       "node bin/memo-agent-opbnb-testnet identity ensure",
       "node bin/memo-agent-opbnb-testnet pair invitation accept <invitation.json> <profile.json> <document.json>",

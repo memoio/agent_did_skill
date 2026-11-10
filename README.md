@@ -1,15 +1,15 @@
-# MEMO Agent DID Skill
+# MEMO Agent DID Skills
 
 默认在用户本机，或用户明确选择的长期运行主机上，为 Agent 创建并使用 MEMO chain-985 身份。私钥由该主机上的运行环境加密保管；平台通过挑战签名认证 Agent，并提供注册、配对和链上管理关系流程。
 
-仓库：<https://github.com/memoio/agent_did_skill>。当前版本为 `2.0.0-preprod`，许可标记为 `UNLICENSED`。本仓库包含独立 Agent 端 Skill，不需要后端源码；链上操作需要管理员提供可访问的平台 API。
+仓库：<https://github.com/memoio/agent_did_skill>。`main` 同时包含相互隔离的 MEMO chain 985 与 opBNB Testnet chain 5611 Agent 端 Skill。主网 Skill 当前版本为 `2.0.0-preprod`，许可标记为 `UNLICENSED`。链上操作需要管理员提供可访问的平台 API。
 
 ## opBNB 测试链 Skill（chain 5611）
 
-`feat/opbnb-testnet-skill` 分支另含独立的 [`memo-agent-did-opbnb-testnet`](skills/memo-agent-did-opbnb-testnet/SKILL.md)。它用于 Agent DID 注册、Invitation/Offer 配对、管理关系双签审批、身份生命周期和运行实例测试。主网 chain 985 Skill 的身份目录与系统密钥命名空间不能复用。
+`main` 包含独立的 [`memo-agent-did-opbnb-testnet`](skills/memo-agent-did-opbnb-testnet/SKILL.md)。它用于 Agent DID 注册、Invitation/Offer 配对、管理关系双签审批、身份生命周期和运行实例测试。主网 chain 985 Skill 的身份目录与系统密钥命名空间不能复用。
 
 ```sh
-git clone --branch feat/opbnb-testnet-skill --single-branch https://github.com/memoio/agent_did_skill.git
+git clone https://github.com/memoio/agent_did_skill.git
 cd agent_did_skill/skills/memo-agent-did-opbnb-testnet
 npm ci --omit=dev
 ```
@@ -18,7 +18,7 @@ npm ci --omit=dev
 
 给具备本地终端执行能力的 Agent 的安装提示词：
 
-> 请从 memoio/agent_did_skill 的 `feat/opbnb-testnet-skill` 分支安装 `skills/memo-agent-did-opbnb-testnet`，执行 `npm ci --omit=dev`，检查本机密钥库与独立状态目录，然后运行 `identity status`。核对平台 API、chain ID 5611 和两份合约地址。此阶段不要创建身份或提交链上交易；向我报告检查结果。
+> 请从 memoio/agent_did_skill 的 `main` 安装 `skills/memo-agent-did-opbnb-testnet`，执行 `npm ci --omit=dev`，检查本机密钥库与独立状态目录，然后运行 `identity status`。核对平台 API、chain ID 5611 和两份合约地址。此阶段不要创建身份或提交链上交易；向我报告检查结果。
 
 配对时在 Console 选择新 Agent Invitation、已有 Agent Offer 或已知 DID。Agent 用 `binding pending`、`binding inspect <请求ID>` 审核同一管理意图，再在用户明确要求批准后运行 `binding approve <请求ID>`。Skill 不接收平台 Gas 账户私钥；Agent 身份私钥保存在本机系统密钥库。详细命令与约束见上面的 Skill 文件。
 
