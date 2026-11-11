@@ -14,11 +14,12 @@ test("Offer terms have bounded scope and expiry without a visibility option",()=
 });
 
 test("Offer file and platform record must bind the same origin, contracts and visibility",()=>{
-  const file={schema:"memo.agent-pairing-package/2",kind:"agent-offer",exchangeId:"00000000-0000-4000-8000-000000000001",handle:"a".repeat(64),platformOrigin:"http://127.0.0.1:4273",chainId:5611,didRegistry,managementRegistry,agentDid:"did:memo:agent:5611:0x3333333333333333333333333333333333333333",maxScopes:["agent.read"],maxTermSeconds:86400,discoverable:true,expiresAt:new Date(Date.now()+900000).toISOString()};
-  const record={exchangeId:file.exchangeId,kind:file.kind,state:"OPEN",agentDid:file.agentDid,maxScopes:["agent.read"],maxTermSeconds:86400,discoverable:true,expiresAt:file.expiresAt};
+  const file={schema:"memo.agent-pairing-package/2",kind:"agent-offer",exchangeId:"00000000-0000-4000-8000-000000000001",handle:"a".repeat(64),platformOrigin:"http://127.0.0.1:4273",chainId:5611,didRegistry,managementRegistry,agentDid:"did:memo:agent:5611:0x3333333333333333333333333333333333333333",maxScopes:["agent.read"],maxTermSeconds:86400,discoverable:false,expiresAt:new Date(Date.now()+900000).toISOString()};
+  const record={exchangeId:file.exchangeId,kind:file.kind,state:"OPEN",agentDid:file.agentDid,maxScopes:["agent.read"],maxTermSeconds:86400,discoverable:false,expiresAt:file.expiresAt};
   assert.equal(verifyPairingRecord(verifyPairingFile(file,"agent-offer",file.platformOrigin,config),record),record);
   assert.throws(()=>verifyPairingFile({...file,chainId:1},"agent-offer",file.platformOrigin,config),/PAIRING_FILE_MISMATCH/);
-  assert.throws(()=>verifyPairingRecord(file,{...record,discoverable:false}),/PAIRING_RECORD_MISMATCH/);
+  assert.throws(()=>verifyPairingFile({...file,discoverable:true},"agent-offer",file.platformOrigin,config),/PAIRING_TERMS_INVALID/);
+  assert.throws(()=>verifyPairingRecord(file,{...record,discoverable:true}),/PAIRING_RECORD_MISMATCH/);
   assert.equal(handleHash(file.handle).length,64);
 });
 
