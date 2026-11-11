@@ -26,9 +26,9 @@ node scripts/install.mjs --target codex-user
 
 默认目标为 `~/.agents/skills/memo-agent-did-opbnb-testnet`。还支持 `codex-project`、`claude-user`、`claude-project` 和 `runtime --dest <目录>`。已有安装需显式加 `--upgrade`；旧程序目录会被备份。安装不会创建 DID 或发送交易。
 
-给 Agent 的安装提示词：
+给 Agent 的安装提示词（[Skill 的 GitHub 目录](https://github.com/memoio/agent_did_skill/tree/main/skills/memo-agent-did-opbnb-testnet)）：
 
-> 请在我的本机安装 `$memo-agent-did-opbnb-testnet`，安装锁定依赖，检查系统密钥库和独立状态目录。核对平台 API、opBNB 测试链 chain ID 5611、DID Registry 与 Management Registry 地址。先报告检查结果；安装阶段不创建 DID、不发送交易。
+> 请在这台运行 Codex 的电脑上安装 GitHub 仓库 `https://github.com/memoio/agent_did_skill.git` 的 `main` 分支中 `skills/memo-agent-did-opbnb-testnet/SKILL.md`，Skill 名称是 `memo-agent-did-opbnb-testnet`；安装后才使用 `$memo-agent-did-opbnb-testnet` 调用它。若尚未克隆仓库，运行 `git clone --branch main --single-branch https://github.com/memoio/agent_did_skill.git`；若已克隆，先更新到 `origin/main`。然后在仓库根目录运行 `node scripts/install.mjs --target codex-user`；如果目标 Skill 已安装，增加 `--upgrade`。安装器会安装锁定的运行依赖。完成后报告仓库提交号、实际安装路径、依赖检查结果，以及平台 API 和两份 Registry 地址是否已配置。安装阶段不要创建 DID、Offer 或发送链上交易；缺少平台配置时只报告缺项，不自行猜测地址。
 
 ## 连接平台
 
