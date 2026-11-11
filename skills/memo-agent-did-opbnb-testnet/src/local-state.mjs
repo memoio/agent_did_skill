@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 export const stateBase = resolve(homedir(), ".memo-agent-opbnb-testnet");
 const claimPath = resolve(stateBase, "agent-claim.json");
@@ -10,6 +10,16 @@ const agentsRoot = resolve(stateBase, "agents");
 export function validateAgentId(id) {
   if (typeof id !== "string" || !/^[a-z][a-z0-9-]{0,31}$/.test(id) || id.endsWith("-")) throw Error("INVALID_AGENT_ID");
   return id;
+}
+
+export function generateAgentId() {
+  if (process.env.MEMO_AGENT_OPBNB_HOME) throw Error("LEGACY_HOME_UNSUPPORTED_USE_AGENT_ID");
+  const claimedId = claim()?.agentId;
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const id = `agent-${randomBytes(12).toString("hex")}`;
+    if (id !== claimedId && !existsSync(resolve(agentsRoot, id))) return id;
+  }
+  throw Error("AGENT_ID_GENERATION_FAILED");
 }
 
 function claim() {

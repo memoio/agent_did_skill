@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync, lstatSyn
 import { resolve } from "node:path";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { offerOptions, verifyPairingFile, verifyPairingRecord, handleHash } from "./pairing.mjs";
-import { selectedState, claimDefault, listAgents, validateAgentId } from "./local-state.mjs";
+import { selectedState, claimDefault, listAgents, generateAgentId } from "./local-state.mjs";
 import { deploymentSettings, verifyChainConfig } from "./deployment.mjs";
 import { expectedDocument, validateRegistrationFiles } from "./registration.mjs";
 
@@ -201,11 +201,11 @@ async function run(args){
       try{const secret=new Entry("com.memo.agent-did.opbnb-testnet",`${id}:identity:v1`).getSecret();if(!secret)return false;const w=new Wallet(`0x${Buffer.from(secret).toString("hex")}`);return w.address===address&&w.signingKey.publicKey===publicKey&&`did:memo:agent:5611:${w.address.toLowerCase()}`===did;}catch{return false;}
     });
   }
-  if(group==="agent"&&command==="init"&&rest[0]&&rest.length===1){
-    select(validateAgentId(rest[0]),true);
+  if(group==="agent"&&command==="init"&&rest.length===0){
+    select(generateAgentId(),true);
     const {wallet:w,did}=wallet(true);
     mkdirSync(resolve(root,"offers"),{recursive:true,mode:0o700});
-    return {agentId,did,address:w.address,publicKey:w.signingKey.publicKey,stateDirectory:root,...prepareDocuments(did,w.signingKey.publicKey),localIdentityReady:true};
+    return {agentId,did,address:w.address,publicKey:w.signingKey.publicKey,stateDirectory:root,...prepareDocuments(did,w.signingKey.publicKey),generatedAgentId:true,localIdentityReady:true};
   }
   if(group==="identity"&&command==="ensure"){
     const {wallet:w,did}=wallet(true);return {did,address:w.address,publicKey:w.signingKey.publicKey,localIdentityReady:true};
@@ -298,7 +298,7 @@ async function run(args){
     return {passed:verifyMessage(proof.message,proof.signature)===computeAddress(proof.publicKey),instanceId:proof.instanceId,nonceHash:proof.nonceHash};
   }
   if(group==="operation"&&command){const {wallet:w}=wallet();return api(`operations/${encodeURIComponent(command)}`,undefined,await session(w));}
-  throw Error("USAGE: config check; agent init <id>|list|claim-default <id> --expect-did <did>; --agent <id> identity status|ensure|update-profile|update-document|suspend|resume|revoke|self-test; --agent <id> register --profile <profile.json>; --agent <id> pair offer create|invitation accept <file>|status; --agent <id> binding pending|inspect|approve|reject; --agent <id> instance create|list|revoke; --agent <id> auth sign <challenge.json>; --agent <id> management pending|inspect|approve|end; --agent <id> operation <id>");
+  throw Error("USAGE: config check; agent init|list|claim-default <id> --expect-did <did>; --agent <id> identity status|ensure|update-profile|update-document|suspend|resume|revoke|self-test; --agent <id> register --profile <profile.json>; --agent <id> pair offer create|invitation accept <file>|status; --agent <id> binding pending|inspect|approve|reject; --agent <id> instance create|list|revoke; --agent <id> auth sign <challenge.json>; --agent <id> management pending|inspect|approve|end; --agent <id> operation <id>");
 }
 try{
   const args=process.argv.slice(2),agentFlags=args.filter(value=>value==="--agent");

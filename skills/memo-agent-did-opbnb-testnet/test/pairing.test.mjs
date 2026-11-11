@@ -37,8 +37,8 @@ test("Invitation setup guide accepts the fixed Skill source and rejects altered 
   assert.equal(agentSetup.localOnly,true);
   assert.equal(agentSetup.skill.ref,"main");
   assert.match(agentSetup.commands[0],/--branch main --single-branch/);
-  assert.ok(agentSetup.commands.includes("node bin/memo-agent-opbnb-testnet agent init <agent-id>"));
-  assert.ok(agentSetup.commands.includes("node bin/memo-agent-opbnb-testnet --agent <agent-id> register --profile <reviewed-profile.json>"));
+  assert.ok(agentSetup.commands.includes("node bin/memo-agent-opbnb-testnet agent init"));
+  assert.ok(agentSetup.commands.includes("node bin/memo-agent-opbnb-testnet --agent <returned-agent-id> register --profile <reviewed-profile.json>"));
   assert.equal(verifyPairingFile({...file,agentSetup},"platform-invitation",file.platformOrigin,config).agentSetup,agentSetup);
   assert.throws(()=>verifyPairingFile({...file,agentSetup:{...agentSetup,skill:{...agentSetup.skill,ref:"retired-branch"}}},"platform-invitation",file.platformOrigin,config),/UNTRUSTED_AGENT_SETUP/);
   assert.throws(()=>verifyPairingFile({...file,agentSetup:{...agentSetup,skill:{...agentSetup.skill,repository:"https://example.invalid/skill.git"}}},"platform-invitation",file.platformOrigin,config),/UNTRUSTED_AGENT_SETUP/);

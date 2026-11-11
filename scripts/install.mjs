@@ -74,7 +74,7 @@ async function main() {
       next: [
         `node "${resolve(destination, "bin", "memo-agent-opbnb-testnet")}" config check`,
         `node "${resolve(destination, "bin", "memo-agent-opbnb-testnet")}" agent list`,
-        "Choose a unique Agent ID, then use agent init <id> only for a new identity; add --agent <id> to later commands.",
+        "For a new Agent, run agent init without an ID; save its returned agentId and pass --agent <id> to later commands.",
       ],
     });
   } catch (error) {

@@ -9,7 +9,7 @@ import { spawnSync } from "node:child_process";
 const skill = resolve(import.meta.dirname, "..");
 const moduleUrl = pathToFileURL(resolve(skill, "src/local-state.mjs")).href;
 function isolated(code, home) {
-  return spawnSync(process.execPath, ["--input-type=module", "-e", `import { selectedState, claimDefault, listAgents, stateBase } from ${JSON.stringify(moduleUrl)}; ${code}`], {
+  return spawnSync(process.execPath, ["--input-type=module", "-e", `import { selectedState, claimDefault, listAgents, generateAgentId, stateBase } from ${JSON.stringify(moduleUrl)}; ${code}`], {
     encoding: "utf8", env: { ...process.env, HOME: home, MEMO_AGENT_OPBNB_HOME: "" },
   });
 }
@@ -26,6 +26,21 @@ test("independent Agent IDs have different directories and installation IDs", ()
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
+test("new Agent IDs are generated without user input or state changes", () => {
+  const home = mkdtempSync(resolve(tmpdir(), "memo-agent-generated-"));
+  try {
+    const result = isolated('const first=generateAgentId(),second=generateAgentId();const existedBefore=await import("node:fs").then(fs=>fs.existsSync(stateBase));const saved=selectedState(first,true);console.log(JSON.stringify({first,second,existedBefore,root:saved.root,next:generateAgentId()}));', home);
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.match(output.first, /^agent-[0-9a-f]{24}$/);
+    assert.match(output.second, /^agent-[0-9a-f]{24}$/);
+    assert.equal(output.existedBefore, false);
+    assert.notEqual(output.first, output.second);
+    assert.notEqual(output.first, output.next);
+    assert.equal(output.root, resolve(home, ".memo-agent-opbnb-testnet", "agents", output.first));
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
 test("CLI refuses identity commands without an explicit Agent ID", () => {
   const home = mkdtempSync(resolve(tmpdir(), "memo-agent-cli-"));
   try {
@@ -34,6 +49,16 @@ test("CLI refuses identity commands without an explicit Agent ID", () => {
     assert.equal(JSON.parse(result.stdout).error.code, "AGENT_ID_REQUIRED");
     const unknown = spawnSync(process.execPath, [resolve(skill, "bin/memo-agent-opbnb-testnet"), "--agent", "unknown", "identity", "status"], { encoding: "utf8", env: { ...process.env, HOME: home, MEMO_AGENT_OPBNB_HOME: "" } });
     assert.equal(JSON.parse(unknown.stdout).error.code, "AGENT_NOT_INITIALIZED");
+    assert.equal(existsSync(resolve(home, ".memo-agent-opbnb-testnet")), false);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test("CLI does not accept a user-chosen ID for a new Agent", () => {
+  const home = mkdtempSync(resolve(tmpdir(), "memo-agent-init-arg-"));
+  try {
+    const result = spawnSync(process.execPath, [resolve(skill, "bin/memo-agent-opbnb-testnet"), "agent", "init", "chosen-id"], { encoding: "utf8", env: { ...process.env, HOME: home, MEMO_AGENT_OPBNB_HOME: "" } });
+    assert.notEqual(result.status, 0);
+    assert.match(JSON.parse(result.stdout).error.code, /USAGE:.*agent init\|list/);
     assert.equal(existsSync(resolve(home, ".memo-agent-opbnb-testnet")), false);
   } finally { rmSync(home, { recursive: true, force: true }); }
 });

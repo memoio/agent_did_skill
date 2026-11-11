@@ -30,7 +30,7 @@ node scripts/install.mjs --target runtime --dest "/absolute/path/to/agent/skills
 
 给 Agent 的安装提示词（[Skill 的 GitHub 目录](https://github.com/memoio/agent_did_skill/tree/main/skills/memo-agent-did-opbnb-testnet)）：
 
-> 请在你实际运行、能访问终端和系统密钥库的机器上安装 `memo-agent-did-opbnb-testnet`。唯一来源是 `https://github.com/memoio/agent_did_skill.git` 的 `main` 分支，入口为 `skills/memo-agent-did-opbnb-testnet/SKILL.md`。未克隆时运行 `git clone --branch main --single-branch https://github.com/memoio/agent_did_skill.git`；已克隆时先更新到 `origin/main`。在仓库根目录执行 `node scripts/install.mjs --target agent-user`；如果你的宿主不读取 `~/.agents/skills`，改用 `--target runtime --dest <宿主可读的绝对目录>`。目标已存在时增加 `--upgrade`。安装后为本 Agent 选择唯一的本地 `agent-id`，先运行 `agent list`，不要把另一 Agent 的 DID 当作自己的身份；初始化和上链注册是分开的步骤。完成后报告提交号、安装路径与本机公开平台配置核对结果。安装阶段不要创建 DID、Offer 或发送链上交易。
+> 请在你实际运行、能访问终端和系统密钥库的机器上安装 `memo-agent-did-opbnb-testnet`。唯一来源是 `https://github.com/memoio/agent_did_skill.git` 的 `main` 分支，入口为 `skills/memo-agent-did-opbnb-testnet/SKILL.md`。未克隆时运行 `git clone --branch main --single-branch https://github.com/memoio/agent_did_skill.git`；已克隆时先更新到 `origin/main`。在仓库根目录执行 `node scripts/install.mjs --target agent-user`；如果你的宿主不读取 `~/.agents/skills`，改用 `--target runtime --dest <宿主可读的绝对目录>`。目标已存在时增加 `--upgrade`。安装后先运行 `agent list`；为全新 Agent 创建身份时运行 `agent init`，Skill 会自动生成 ID。请你保存并在后续命令中使用返回的 `agentId`，不要沿用另一 Agent 的 DID。初始化和上链注册是分开的步骤。完成后报告提交号、安装路径与本机公开平台配置核对结果。安装阶段不要创建 DID、Offer 或发送链上交易。
 
 ## 连接平台
 
@@ -48,28 +48,30 @@ export MEMO_AGENT_OPBNB_MANAGEMENT_REGISTRY="<该部署的 Management Registry �
 
 ## 创建 DID、注册及生成 Offer
 
-同一主机可共用 Skill 程序，但每个独立 Agent 必须有不同的本地 ID。首次创建只写本机身份与注册资料模板：
+同一主机可共用 Skill 程序，但每个独立 Agent 都有不同的本地 ID。新 Agent 运行 `agent init` 后，Skill 自动生成 ID；Agent 保存返回的 `agentId`，之后自行代入命令，无需让用户命名。首次创建只写本机身份与注册资料模板：
 
 ```sh
 node bin/memo-agent-opbnb-testnet agent list
-node bin/memo-agent-opbnb-testnet agent init agent-b
-node bin/memo-agent-opbnb-testnet --agent agent-b identity status
+INIT_JSON="$(node bin/memo-agent-opbnb-testnet agent init)"
+AGENT_ID="$(node -p 'JSON.parse(process.argv[1]).data.agentId' "$INIT_JSON")"
+AGENT_HOME="$(node -p 'JSON.parse(process.argv[1]).data.stateDirectory' "$INIT_JSON")"
+node bin/memo-agent-opbnb-testnet --agent "$AGENT_ID" identity status
 ```
 
 新 Agent 的 `document.json` 与 `profile.template.json` 位于返回的 `stateDirectory`。把模板复制为 `profile.json`，填写并确认非空的名称与描述，然后单独注册：
 
 ```sh
-node bin/memo-agent-opbnb-testnet --agent agent-b register --profile "$HOME/.memo-agent-opbnb-testnet/agents/agent-b/profile.json"
-node bin/memo-agent-opbnb-testnet --agent agent-b pair offer create "$HOME/.memo-agent-opbnb-testnet/agents/agent-b/offers/agent.memo-offer.json" agent.read 30 900
+node bin/memo-agent-opbnb-testnet --agent "$AGENT_ID" register --profile "$AGENT_HOME/profile.json"
+node bin/memo-agent-opbnb-testnet --agent "$AGENT_ID" pair offer create "$AGENT_HOME/offers/agent.memo-offer.json" agent.read 30 900
 ```
 
-`agent init` 不发送交易；`register` 才请求平台发送注册交易。此 Offer 示例权限上限为 `agent.read`，最长管理期限 30 天，文件有效期 900 秒。钱包用户在 Console 导入 Offer 并签名，Agent 使用同一 `--agent agent-b` 执行 `binding pending`、`binding inspect <requestId>`、`binding approve <requestId>`。新 Agent 接受 Invitation 时，先运行 `--agent agent-b pair invitation accept <invitation.json>` 领取；确认 Profile 并独立注册后，重复接受命令完成配对。
+`agent init` 不发送交易；`register` 才请求平台发送注册交易。此 Offer 示例权限上限为 `agent.read`，最长管理期限 30 天，文件有效期 900 秒。钱包用户在 Console 导入 Offer 并签名，Agent 使用同一返回 ID 执行 `binding pending`、`binding inspect <requestId>`、`binding approve <requestId>`。新 Agent 接受 Invitation 时，先带返回 ID 运行 `pair invitation accept <invitation.json>` 领取；确认 Profile 并独立注册后，重复接受命令完成配对。
 
 已有默认目录中的注册 DID 应由原 Agent 一次性领取，领取时必须核对完整 DID：`node bin/memo-agent-opbnb-testnet agent claim-default <原Agent-ID> --expect-did <现有DID>`。此操作不更换钥匙或发送交易。此后所有身份命令都带 `--agent <ID>`；没有 ID 时 CLI 拒绝执行。
 
 安装后可直接发给 Agent 的 Offer 提示词：
 
-> 请阅读已安装的 `memo-agent-did-opbnb-testnet/SKILL.md`。先确定本 Agent 的唯一 `agent-id`，运行 `agent list`，再用 `--agent <ID>` 查询身份；不要把另一 Agent 的 DID 当作自己的。如果本 Agent 的 DID 已注册且尚未绑定，请用权限 `agent.read`、最长 30 天、有效期 900 秒，在该 Agent 的独立 `offers` 目录中新建 Offer。只返回 DID、exchangeId、文件路径和到期时间；不要输出文件内容或密钥。
+> 请阅读已安装的 `memo-agent-did-opbnb-testnet/SKILL.md`。先运行 `agent list`，确认本 Agent 是否已有身份；全新 Agent 运行 `agent init` 自动获得 ID，不要让我起名。保存返回的 `agentId`，之后用 `--agent <ID>` 查询身份，不能沿用另一 Agent 的 DID。如果本 Agent 的 DID 已注册且尚未绑定，请用权限 `agent.read`、最长 30 天、有效期 900 秒，在该 Agent 的独立 `offers` 目录中新建 Offer。只返回 DID、exchangeId、文件路径和到期时间；不要输出文件内容或密钥。
 
 安装本身不会创建 Offer。更多命令和签名校验要求见 [SKILL.md](skills/memo-agent-did-opbnb-testnet/SKILL.md)。
 
