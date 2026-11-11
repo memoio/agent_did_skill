@@ -4,6 +4,8 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
 } from "node:fs";
@@ -11,6 +13,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 const bundleRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const skillName = "memo-agent-did-opbnb-testnet";
@@ -37,8 +40,11 @@ async function main() {
   let backupPath;
   if (existsSync(destination)) {
     if (!options.upgrade) throw new Error(`目标已存在：${destination}。升级请增加 --upgrade；安装器不会静默覆盖。`);
-    backupPath = `${destination}.backup-${safeTimestamp()}`;
-    renameSync(destination, backupPath);
+  }
+  migrateInTreeBackups(destination);
+  if (existsSync(destination)) {
+    backupPath = resolve(backupRoot(), `${skillName}-${safeTimestamp()}-${randomUUID()}`);
+    moveDirectory(destination, backupPath);
   }
 
   let copied = false;
@@ -66,13 +72,14 @@ async function main() {
       runtimeDependenciesReady: true,
       generatedIdentity: false,
       next: [
-        "Configure MEMO_AGENT_OPBNB_API_URL and the two pinned Registry addresses before registration.",
-        `node "${resolve(destination, "bin", "memo-agent-opbnb-testnet")}" identity status`,
+        `node "${resolve(destination, "bin", "memo-agent-opbnb-testnet")}" config check`,
+        `node "${resolve(destination, "bin", "memo-agent-opbnb-testnet")}" agent list`,
+        "Choose a unique Agent ID, then use agent init <id> only for a new identity; add --agent <id> to later commands.",
       ],
     });
   } catch (error) {
     if (copied && existsSync(destination)) rmSync(destination, { recursive: true, force: true });
-    if (backupPath && existsSync(backupPath) && !existsSync(destination)) renameSync(backupPath, destination);
+    if (backupPath && existsSync(backupPath) && !existsSync(destination)) moveDirectory(backupPath, destination);
     throw error;
   }
 }
@@ -152,4 +159,32 @@ function emit(options, payload) {
 
 function safeTimestamp() {
   return new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-");
+}
+
+function backupRoot() {
+  const directory = resolve(homedir(), ".memo-agent-opbnb-install-backups");
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  return directory;
+}
+
+function moveDirectory(from, to) {
+  mkdirSync(dirname(to), { recursive: true, mode: 0o700 });
+  try { renameSync(from, to); }
+  catch (error) {
+    if (error.code !== "EXDEV") throw error;
+    cpSync(from, to, { recursive: true, errorOnExist: true });
+    rmSync(from, { recursive: true, force: true });
+  }
+}
+
+function migrateInTreeBackups(destination) {
+  const parent = dirname(destination), prefix = `${basename(destination)}.backup-`;
+  for (const name of readdirSync(parent)) {
+    if (!name.startsWith(prefix)) continue;
+    const oldPath = resolve(parent, name), skillFile = resolve(oldPath, "SKILL.md");
+    if (!existsSync(skillFile)) continue;
+    const contents = readFileSync(skillFile, "utf8");
+    if (!/^name: memo-agent-did-opbnb-testnet$/m.test(contents)) continue;
+    moveDirectory(oldPath, resolve(backupRoot(), `${name}-${randomUUID()}`));
+  }
 }

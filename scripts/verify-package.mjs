@@ -8,7 +8,7 @@ const skillName = "memo-agent-did-opbnb-testnet";
 const skill = resolve(bundle, "skills", skillName);
 const entries = readdirSync(resolve(bundle, "skills"), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 if (entries.length !== 1 || entries[0] !== skillName) throw new Error("UNEXPECTED_SKILL_DIRECTORY");
-for (const path of ["SKILL.md", "agents/openai.yaml", "package.json", "package-lock.json", "bin/memo-agent-opbnb-testnet", "src/cli.mjs", "src/pairing.mjs"]) {
+for (const path of ["SKILL.md", "agents/openai.yaml", "package.json", "package-lock.json", "bin/memo-agent-opbnb-testnet", "src/cli.mjs", "src/pairing.mjs", "src/local-state.mjs", "src/deployment.mjs", "src/registration.mjs"]) {
   accessSync(resolve(skill, path), constants.R_OK);
 }
 const manifest = JSON.parse(readFileSync(resolve(skill, "package.json"), "utf8"));

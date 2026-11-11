@@ -1,22 +1,22 @@
 import { Entry } from "@napi-rs/keyring";
 import { Wallet, TypedDataEncoder, getAddress, computeAddress, keccak256, verifyMessage } from "ethers";
-import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, chmodSync, lstatSync, openSync, closeSync, fsyncSync, unlinkSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync, lstatSync, openSync, closeSync, fsyncSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { offerOptions, verifyPairingFile, verifyPairingRecord, handleHash } from "./pairing.mjs";
+import { selectedState, claimDefault, listAgents, validateAgentId } from "./local-state.mjs";
+import { deploymentSettings, verifyChainConfig } from "./deployment.mjs";
+import { expectedDocument, validateRegistrationFiles } from "./registration.mjs";
 
 const chainId=5611;
-const genesis="0x51fa57729dfb1c27542c21b06cb72a0459c57440ceb43a465dae1307cd04fe80";
-const root=resolve(process.env.MEMO_AGENT_OPBNB_HOME||resolve(homedir(),".memo-agent-opbnb-testnet"));
-const meta=resolve(root,"identity.json");
-if(existsSync(root)&&!existsSync(meta)&&readdirSync(root).some(name=>!["offers","installation-id",".DS_Store"].includes(name)))throw Error("STATE_NAMESPACE_CONFLICT");
-if(existsSync(meta)&&JSON.parse(readFileSync(meta,"utf8")).schema!=="memo.opbnb-agent-local/1")throw Error("STATE_NAMESPACE_CONFLICT");
-mkdirSync(root,{recursive:true,mode:0o700});chmodSync(root,0o700);
-const marker=resolve(root,"installation-id");
-if(!existsSync(marker))writeFileSync(marker,randomUUID(),{mode:0o600,flag:"wx"});
-const installationId=readFileSync(marker,"utf8").trim();
-const entry=new Entry("com.memo.agent-did.opbnb-testnet",`${installationId}:identity:v1`);
+let root,meta,installationId,entry,agentId;
+function select(id,create=false){
+  const state=selectedState(id,create);
+  root=state.root;meta=state.meta;installationId=state.installationId;agentId=id;
+  chmodSync(root,0o700);
+  entry=new Entry("com.memo.agent-did.opbnb-testnet",`${installationId}:identity:v1`);
+  return state;
+}
 const fields={
   RegisterAgent:[["identityAccount","address"],["identityPublicKeyHash","bytes32"],["documentHash","bytes32"],["profileHash","bytes32"],["expectedRevision","uint64"],["nonce","uint256"],["deadline","uint64"]],
   ActivateRelationship:[["agent","address"],["manager","address"],["relationshipIdHash","bytes32"],["scopesHash","bytes32"],["issuedAt","uint64"],["expiresAt","uint64"],["discoverable","bool"],["expectedRevision","uint64"],["nonce","uint256"],["deadline","uint64"]],
@@ -38,13 +38,12 @@ function wallet(create=false){
   const did=`did:memo:agent:5611:${w.address.toLowerCase()}`;
   if(existsSync(meta)){
     const saved=JSON.parse(readFileSync(meta,"utf8"));
-    if(saved.did!==did||saved.address!==w.address)throw Error("IDENTITY_QUARANTINED");
-  }else writeFileSync(meta,JSON.stringify({schema:"memo.opbnb-agent-local/1",installationId,did,address:w.address,publicKey:w.signingKey.publicKey}),{mode:0o600,flag:"wx"});
+    if(saved.did!==did||saved.address!==w.address||saved.publicKey!==w.signingKey.publicKey)throw Error("IDENTITY_QUARANTINED");
+  }else writeFileSync(meta,JSON.stringify({schema:"memo.opbnb-agent-local/1",agentId,installationId,did,address:w.address,publicKey:w.signingKey.publicKey}),{mode:0o600,flag:"wx"});
   return {wallet:w,did};
 }
 function platform(){
-  const input=process.env.MEMO_AGENT_OPBNB_API_URL;
-  if(!input)throw Error("PLATFORM_ORIGIN_REQUIRED");
+  const input=deploymentSettings().apiUrl;
   const url=new URL(input);
   if(url.username||url.password||url.search||url.hash||!(url.protocol==="https:"||(url.protocol==="http:"&&["127.0.0.1","localhost"].includes(url.hostname))))throw Error("PLATFORM_ORIGIN_FORBIDDEN");
   return url.origin;
@@ -56,12 +55,8 @@ async function api(path,body,token,idem){
   return envelope.data;
 }
 async function pinned(){
-  const c=await api("chain/config");
-  if(c.network.chainId!==chainId||c.network.caip2!=="eip155:5611"||c.network.genesisHash.toLowerCase()!==genesis)throw Error("NETWORK_MISMATCH");
-  for(const [kind,key] of [["didRegistry","MEMO_AGENT_OPBNB_DID_REGISTRY"],["managementRegistry","MEMO_AGENT_OPBNB_MANAGEMENT_REGISTRY"]]){
-    if(!process.env[key]||getAddress(c.contracts[kind].address)!==getAddress(process.env[key]))throw Error("REGISTRY_MISMATCH");
-  }
-  return c;
+  const expected=deploymentSettings();
+  return verifyChainConfig(expected,await api("chain/config"));
 }
 function verifyIntent(intent,action,account,config){
   if(intent.actionType!==action||intent.networkId!=="eip155:5611"||intent.domain.chainId!==chainId||intent.domain.version!=="1")throw Error("INTENT_NETWORK_MISMATCH");
@@ -114,6 +109,15 @@ function canonical(value){
   return JSON.stringify(value);
 }
 function shaJson(value){return `0x${createHash("sha256").update(canonical(value)).digest("hex")}`;}
+function prepareDocuments(did,publicKey){
+  const documentPath=resolve(root,"document.json"),templatePath=resolve(root,"profile.template.json");
+  const document=expectedDocument(did,publicKey);
+  if(existsSync(documentPath)){
+    if(canonical(readJson(documentPath))!==canonical(document))throw Error("DID_DOCUMENT_MISMATCH");
+  }else writeFileSync(documentPath,JSON.stringify(document,null,2)+"\n",{mode:0o600,flag:"wx"});
+  if(!existsSync(templatePath))writeFileSync(templatePath,JSON.stringify({name:agentId,description:""},null,2)+"\n",{mode:0o600,flag:"wx"});
+  return {documentPath,profileTemplatePath:templatePath};
+}
 function hashIdentifier(value){return keccak256(Buffer.from(value,"utf8"));}
 function checkedPairing(value,kind,config,allowExpired=false){return verifyPairingFile(value,kind,platform(),config,allowExpired);}
 async function registryAction(actionType,payload,w,did,config,token){
@@ -187,16 +191,41 @@ async function binding(command,id){
 }
 async function run(args){
   const [group,command,...rest]=args;
+  if(group==="config"&&command==="check"&&rest.length===0){
+    const config=await pinned(),selected=deploymentSettings();
+    return {source:selected.source,deploymentId:config.deploymentId,network:config.network.caip2,apiUrl:selected.apiUrl,didRegistry:config.contracts.didRegistry.address,managementRegistry:config.contracts.managementRegistry.address,verified:true};
+  }
+  if(group==="agent"&&command==="list"&&rest.length===0)return {agents:listAgents()};
+  if(group==="agent"&&command==="claim-default"&&rest[0]&&rest[1]==="--expect-did"&&rest[2]&&rest.length===3){
+    return claimDefault(rest[0],rest[2],(id,did,address,publicKey)=>{
+      try{const secret=new Entry("com.memo.agent-did.opbnb-testnet",`${id}:identity:v1`).getSecret();if(!secret)return false;const w=new Wallet(`0x${Buffer.from(secret).toString("hex")}`);return w.address===address&&w.signingKey.publicKey===publicKey&&`did:memo:agent:5611:${w.address.toLowerCase()}`===did;}catch{return false;}
+    });
+  }
+  if(group==="agent"&&command==="init"&&rest[0]&&rest.length===1){
+    select(validateAgentId(rest[0]),true);
+    const {wallet:w,did}=wallet(true);
+    mkdirSync(resolve(root,"offers"),{recursive:true,mode:0o700});
+    return {agentId,did,address:w.address,publicKey:w.signingKey.publicKey,stateDirectory:root,...prepareDocuments(did,w.signingKey.publicKey),localIdentityReady:true};
+  }
   if(group==="identity"&&command==="ensure"){
     const {wallet:w,did}=wallet(true);return {did,address:w.address,publicKey:w.signingKey.publicKey,localIdentityReady:true};
   }
   if(group==="identity"&&command==="status"){
     const {wallet:w,did}=wallet();return {did,address:w.address,publicKey:w.signingKey.publicKey};
   }
-  if(group==="register"&&command&&rest[0]){
-    const {wallet:w,did}=wallet();const config=await pinned();const token=await session(w);
-    const profile=JSON.parse(readFileSync(resolve(command),"utf8"));
-    const document=JSON.parse(readFileSync(resolve(rest[0]),"utf8"));
+  if(group==="register"&&command==="--profile"&&rest[0]&&rest.length===1){
+    const {wallet:w,did}=wallet();
+    const profile=readJson(rest[0]),document=readJson(resolve(root,"document.json"));
+    validateRegistrationFiles(profile,document,did,w.signingKey.publicKey);
+    const config=await pinned(),token=await session(w);
+    try{
+      const existing=await api(`agent-dids/${encodeURIComponent(did)}`);
+      if(existing.status==="ACTIVE"){
+        if(existing.profileHash!==shaJson(profile)||existing.documentHash!==shaJson(document))throw Error("IDENTITY_ALREADY_REGISTERED_DIFFERENT_DOCUMENT");
+        return {agentId,did,state:"ACTIVE",alreadyRegistered:true,verified:existing.verified??false,txHash:existing.proof?.tx_hash??null};
+      }
+      throw Error("IDENTITY_ALREADY_REGISTERED");
+    }catch(error){if(error.message!=="DID_NOT_FOUND")throw error;}
     const intent=await api("registration-intents",{identityAccount:w.address,identityPublicKey:w.signingKey.publicKey,profile,document},token);
     verifyIntent(intent,"RegisterAgent",w.address,config);
     const publicKeyHash=keccak256(`0x${w.signingKey.publicKey.slice(4)}`);
@@ -236,7 +265,7 @@ async function run(args){
     return registryAction(map[command],payload,w,did,config,token);
   }
   if(group==="pair"&&command==="offer"&&rest[0]==="create")return createOffer(rest.slice(1));
-  if(group==="pair"&&command==="invitation"&&rest[0]==="accept"&&rest[1]&&rest[2]&&rest[3]){
+  if(group==="pair"&&command==="invitation"&&rest[0]==="accept"&&rest[1]&&rest.length===2){
     const {wallet:w,did}=wallet(),config=await pinned(),token=await session(w),file=checkedPairing(readJson(rest[1]),"platform-invitation",config,true);
     try{verifyPairingRecord(file,await api("pairing-invitations/inspect",{exchangeId:file.exchangeId,handle:file.handle},token));}
     catch(error){if(error.message!=="PAIRING_INVALID_OR_EXPIRED")throw error;}
@@ -245,7 +274,7 @@ async function run(args){
     if(claimed.agentDid!==did)throw Error("PAIRING_AGENT_MISMATCH");
     let registered=false;
     try{const identity=await api(`agent-dids/${encodeURIComponent(did)}`);registered=identity.status==="ACTIVE";}catch(error){if(error.message!=="DID_NOT_FOUND")throw error;}
-    if(!registered){const result=await run(["register",rest[2],rest[3]]);if(result.state!=="CONFIRMED")return {exchangeId:file.exchangeId,registration:result,state:"WAITING_REGISTRATION"};}
+    if(!registered)return {exchangeId:file.exchangeId,agentDid:did,state:"WAITING_REGISTRATION",next:"Review profile.template.json, then register --profile <profile.json> and retry this Invitation."};
     return api(`pairing-invitations/${encodeURIComponent(file.exchangeId)}/complete`,{},token);
   }
   if(group==="pair"&&command==="status"&&rest[0]){const {wallet:w}=wallet();return api(`pairing-exchanges/${encodeURIComponent(rest[0])}`,undefined,await session(w));}
@@ -269,7 +298,17 @@ async function run(args){
     return {passed:verifyMessage(proof.message,proof.signature)===computeAddress(proof.publicKey),instanceId:proof.instanceId,nonceHash:proof.nonceHash};
   }
   if(group==="operation"&&command){const {wallet:w}=wallet();return api(`operations/${encodeURIComponent(command)}`,undefined,await session(w));}
-  throw Error("USAGE: identity ensure|status|update-profile <file>|update-document <file>|suspend|resume|revoke|self-test; register <profile> <document>; pair offer create <new-file> <scopes-csv> <max-days> <ttl-seconds>; pair invitation accept <file> <profile> <document>; binding pending|inspect <requestId>|approve <requestId>|reject <requestId>; instance create|list|revoke; auth sign <challenge.json>; management pending|inspect|approve|end; operation <id>");
+  throw Error("USAGE: config check; agent init <id>|list|claim-default <id> --expect-did <did>; --agent <id> identity status|ensure|update-profile|update-document|suspend|resume|revoke|self-test; --agent <id> register --profile <profile.json>; --agent <id> pair offer create|invitation accept <file>|status; --agent <id> binding pending|inspect|approve|reject; --agent <id> instance create|list|revoke; --agent <id> auth sign <challenge.json>; --agent <id> management pending|inspect|approve|end; --agent <id> operation <id>");
 }
-try{const data=await run(process.argv.slice(2));process.stdout.write(JSON.stringify({schema:"memo.agent-opbnb-cli-result/1",ok:true,data})+"\n");}
+try{
+  const args=process.argv.slice(2),agentFlags=args.filter(value=>value==="--agent");
+  if(agentFlags.length>1)throw Error("AGENT_ID_AMBIGUOUS");
+  const index=args.indexOf("--agent"),id=index<0?null:args[index+1];
+  if(index>=0){if(!id)throw Error("AGENT_ID_REQUIRED");args.splice(index,2);}
+  if(args[0]!=="agent"&&!(args[0]==="config"&&args[1]==="check")){
+    if(!id)throw Error("AGENT_ID_REQUIRED");
+    select(id);
+  }else if(id)throw Error("AGENT_ID_AMBIGUOUS");
+  const data=await run(args);process.stdout.write(JSON.stringify({schema:"memo.agent-opbnb-cli-result/1",ok:true,data})+"\n");
+}
 catch(error){process.stdout.write(JSON.stringify({schema:"memo.agent-opbnb-cli-result/1",ok:false,error:{code:error.message||"OPERATION_FAILED"}})+"\n");process.exitCode=1;}
