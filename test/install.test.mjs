@@ -16,13 +16,17 @@ test("installer selects only the opBNB Skill for each target", () => {
   try {
     const home = resolve(temporary, "home");
     const cases = [
+      ["agent-user", resolve(home, ".agents/skills/memo-agent-did-opbnb-testnet")],
+      ["agent-project", resolve(temporary, ".agents/skills/memo-agent-did-opbnb-testnet")],
       ["codex-user", resolve(home, ".agents/skills/memo-agent-did-opbnb-testnet")],
       ["claude-user", resolve(home, ".claude/skills/memo-agent-did-opbnb-testnet")],
       ["codex-project", resolve(temporary, ".agents/skills/memo-agent-did-opbnb-testnet")],
+      ["runtime", resolve(temporary, "custom-agent/skills/memo-agent-did-opbnb-testnet")],
     ];
     for (const [target, expected] of cases) {
       const args = ["--target", target, "--dry-run"];
-      if (target === "codex-project") args.push("--project", temporary);
+      if (target === "agent-project" || target === "codex-project") args.push("--project", temporary);
+      if (target === "runtime") args.push("--dest", expected);
       const result = install(args, { HOME: home, CODEX_HOME: "" });
       assert.equal(result.status, 0, result.stderr);
       assert.equal(JSON.parse(result.stdout).destination, expected);

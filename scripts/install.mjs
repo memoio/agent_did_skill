@@ -99,19 +99,23 @@ function parseOptions(args) {
 
 function normalizeTarget(value) {
   const aliases = {
+    agent: "agent-user",
     codex: "codex-user",
     claude: "claude-user",
+    "project-agent": "agent-project",
     "project-codex": "codex-project",
     "project-claude": "claude-project",
   };
   const target = aliases[value] || value;
-  if (!["codex-user", "claude-user", "codex-project", "claude-project", "runtime"].includes(target)) {
-    throw new Error("请使用 --target codex-user|claude-user|codex-project|claude-project|runtime");
+  if (!["agent-user", "agent-project", "codex-user", "claude-user", "codex-project", "claude-project", "runtime"].includes(target)) {
+    throw new Error("请使用 --target agent-user|agent-project|codex-user|claude-user|codex-project|claude-project|runtime");
   }
   return target;
 }
 
 function resolveDestination(target, options) {
+  if (target === "agent-user") return resolve(homedir(), ".agents", "skills", skillName);
+  if (target === "agent-project") return resolve(String(options.project || process.cwd()), ".agents", "skills", skillName);
   if (target === "codex-user") return resolve(process.env.CODEX_HOME || resolve(homedir(), ".agents"), "skills", skillName);
   if (target === "claude-user") return resolve(homedir(), ".claude", "skills", skillName);
   if (target === "codex-project") return resolve(String(options.project || process.cwd()), ".agents", "skills", skillName);
