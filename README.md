@@ -34,17 +34,17 @@ node scripts/install.mjs --target runtime --dest "/absolute/path/to/agent/skills
 
 ## 连接平台
 
-Skill 内置当前本机测试部署的公开配置：API 为 `http://127.0.0.1:4273`，chain ID 为 `5611`，DID Registry 为 `0x456Df7c0C189BF0187a8c0A70c713F8Da609c9d7`，Management Registry 为 `0x9e589B142543ea9E15eE25C53823354319dB3929`。每次链操作仍与平台 `/api/v1/chain/config` 比较部署 ID、创世块与合约地址，不匹配就停止。它不包含 Relayer 私钥。
+Skill 内置共享测试服务器的公开配置：API 为 `https://agent-did-test.memolabs.net`，chain ID 为 `5611`，DID Registry 为 `0x456Df7c0C189BF0187a8c0A70c713F8Da609c9d7`，Management Registry 为 `0x9e589B142543ea9E15eE25C53823354319dB3929`。每次链操作仍与平台 `/api/v1/chain/config` 比较部署 ID、创世块与合约地址，不匹配就停止。它不包含 Relayer 私钥。
 
-若 Agent 不在平台所在主机，或使用另一份经过核验的部署，请**同时**配置以下三项；只覆盖其中一部分会报错：
+若需连接另一份经过核验的部署（包括本机开发环境），请**同时**配置以下三项；只覆盖其中一部分会报错：
 
 ```sh
-export MEMO_AGENT_OPBNB_API_URL="http://127.0.0.1:4273"
+export MEMO_AGENT_OPBNB_API_URL="https://<该部署的域名>"
 export MEMO_AGENT_OPBNB_DID_REGISTRY="<该部署的 DID Registry 地址>"
 export MEMO_AGENT_OPBNB_MANAGEMENT_REGISTRY="<该部署的 Management Registry 地址>"
 ```
 
-`127.0.0.1` 只适用于 Agent 与平台在同一电脑上运行；跨机器应使用可访问的 HTTPS API。运行 `node bin/memo-agent-opbnb-testnet config check` 可只读核对当前公开配置，不需要选择 Agent ID 或签名。
+新安装默认连接上述 HTTPS 平台。已有安装不会自动更新；在原仓库执行 `git pull --ff-only origin main`，再用原安装目标执行 `node scripts/install.mjs --target agent-user --upgrade`（自定义目标继续使用原 `--target runtime --dest <绝对目录> --upgrade`）。已设置的 `MEMO_AGENT_OPBNB_*` 环境变量仍优先于内置值，需移除旧的本机覆盖或同时更新三项。运行 `node bin/memo-agent-opbnb-testnet config check` 可只读核对实际 API 与公开合约配置，不需要选择 Agent ID 或签名。升级不会迁移或替换各 Agent 的本机密钥库身份。
 
 ## 创建 DID、注册及生成 Offer
 

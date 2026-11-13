@@ -2,7 +2,7 @@ import { getAddress } from "ethers";
 
 export const builtInDeployment = Object.freeze({
   deploymentId: "opbnb-agentdid-20261109-a",
-  apiUrl: "http://127.0.0.1:4273",
+  apiUrl: "https://agent-did-test.memolabs.net",
   chainId: 5611,
   genesisHash: "0x51fa57729dfb1c27542c21b06cb72a0459c57440ceb43a465dae1307cd04fe80",
   didRegistry: "0x456Df7c0C189BF0187a8c0A70c713F8Da609c9d7",

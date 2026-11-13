@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "memo-agent-did-opbnb-testnet",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Register and manage an Agent DID on opBNB Testnet chain 5611.",
   "author": { "name": "MEMO Agent DID" },
   "keywords": ["agent-did", "identity", "eip-712", "opbnb"],

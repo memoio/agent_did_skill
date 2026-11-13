@@ -7,6 +7,7 @@ import { expectedDocument, validateRegistrationFiles } from "../src/registration
 test("built-in public deployment is pinned and partial overrides fail", () => {
   const defaults = deploymentSettings({});
   assert.equal(defaults.source, "built-in");
+  assert.equal(defaults.apiUrl, "https://agent-did-test.memolabs.net");
   assert.equal(defaults.chainId, 5611);
   assert.equal(defaults.didRegistry, builtInDeployment.didRegistry);
   assert.throws(() => deploymentSettings({ MEMO_AGENT_OPBNB_API_URL: "https://example.com" }), /PLATFORM_CONFIG_INCOMPLETE/);
