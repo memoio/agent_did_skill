@@ -26,7 +26,14 @@ jobs:
         working-directory: skills/memo-agent-did-opbnb-testnet
       - name: Build, test, verify and install isolated copies
         run: npm run check
-      - name: Verify discovery by the generic Skill installer
+      - name: Verify Skills discovery and isolated installation
         env:
           DISABLE_TELEMETRY: '1'
-        run: npx --yes skills@1.7.6 add . --list
+        run: |
+          npx --yes skills@1.7.6 add . --list
+          probe="$(mktemp -d)"
+          cd "$probe"
+          npx --yes skills@1.7.6 add "$GITHUB_WORKSPACE" --skill memo-agent-did-opbnb-testnet -a codex -y --copy
+          cd "$probe/.agents/skills/memo-agent-did-opbnb-testnet"
+          node scripts/setup-runtime.mjs --json
+          test -d node_modules/ethers

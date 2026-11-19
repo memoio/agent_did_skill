@@ -25,6 +25,20 @@ export function expectedInvitationSetup(file){
   };
 }
 
+// The Console's later setup guide adds read-only checks before identity creation.
+// Accept only these two known templates; the received file never supplies commands to run.
+export function currentInvitationSetup(file){
+  const legacy=expectedInvitationSetup(file);
+  const {localOnly: _localOnly, ...current}=legacy;
+  return {
+    ...current,
+    commands:[...legacy.commands.slice(0,2),
+      "node bin/memo-agent-opbnb-testnet config check",
+      "node bin/memo-agent-opbnb-testnet agent list",
+      ...legacy.commands.slice(2)],
+  };
+}
+
 export function offerOptions(args){
   const [filename,rawScopes,rawDays,rawTtl,...extra]=args;
   if(!filename||!rawScopes||!/^[1-9][0-9]*$/.test(rawDays||"")||!/^[1-9][0-9]*$/.test(rawTtl||"")||extra.length)throw Error("USAGE: pair offer create <new-file> <scopes-csv> <max-days> <ttl-seconds>");
@@ -38,7 +52,10 @@ export function verifyPairingFile(file,kind,origin,config,allowExpired=false){
   if(!file||file.schema!=="memo.agent-pairing-package/2"||file.kind!==kind||file.platformOrigin!==origin||file.chainId!==5611||typeof file.exchangeId!=="string"||!/^0x[0-9a-fA-F]{40}$/.test(file.didRegistry||"")||!/^0x[0-9a-fA-F]{40}$/.test(file.managementRegistry||"")||getAddress(file.didRegistry)!==getAddress(config.contracts.didRegistry.address)||getAddress(file.managementRegistry)!==getAddress(config.contracts.managementRegistry.address)||typeof file.handle!=="string"||file.handle.length<32||file.handle.length>256||!Number.isFinite(Date.parse(file.expiresAt))||(!allowExpired&&Date.parse(file.expiresAt)<=Date.now()))throw Error("PAIRING_FILE_MISMATCH");
   if(!Array.isArray(file.maxScopes)||!file.maxScopes.length||file.maxScopes.length>64||file.maxScopes.some(value=>typeof value!=="string"||!scopePattern.test(value))||!Number.isSafeInteger(file.maxTermSeconds)||file.maxTermSeconds<60||file.maxTermSeconds>365*86400||file.discoverable!==false)throw Error("PAIRING_TERMS_INVALID");
   if(kind==="agent-offer"&&typeof file.agentDid!=="string")throw Error("PAIRING_FILE_MISMATCH");
-  if(kind==="platform-invitation"&&file.agentSetup!==undefined&&canonical(file.agentSetup)!==canonical(expectedInvitationSetup(file)))throw Error("UNTRUSTED_AGENT_SETUP");
+  if(kind==="platform-invitation"&&file.agentSetup!==undefined){
+    const actual=canonical(file.agentSetup);
+    if(actual!==canonical(expectedInvitationSetup(file))&&actual!==canonical(currentInvitationSetup(file)))throw Error("UNTRUSTED_AGENT_SETUP");
+  }
   return file;
 }
 

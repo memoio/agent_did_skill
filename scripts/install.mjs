@@ -56,12 +56,14 @@ async function main() {
       errorOnExist: true,
       filter: (path) => !["node_modules", ".data", ".git", ".DS_Store"].includes(basename(path)),
     });
-    const install = spawnSync("npm", ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], {
+    const install = spawnSync(process.execPath, [resolve(destination, "scripts", "setup-runtime.mjs"), "--json"], {
       cwd: destination,
       encoding: "utf8",
       timeout: 120_000,
     });
-    if (install.error || install.status !== 0) throw new Error("RUNTIME_DEPENDENCY_INSTALL_FAILED: npm ci did not complete; check npm registry access.");
+    let runtime;
+    try { runtime = JSON.parse(install.stdout); } catch { /* Report a bounded error below. */ }
+    if (install.error || install.status !== 0 || runtime?.ready !== true) throw new Error(`${runtime?.error?.code || "RUNTIME_SETUP_FAILED"}: ${runtime?.error?.message || "运行依赖准备失败"}`);
     chmodSync(resolve(destination, "bin", "memo-agent-opbnb-testnet"), 0o755);
 
     emit(options, {

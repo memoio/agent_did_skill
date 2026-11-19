@@ -4,10 +4,21 @@
 
 ## 安装
 
-需要 Node.js 22.5.0 或更新版本，并且 Agent 能在运行 CLI 的机器上访问终端、Skill 文件和系统密钥库。先从唯一的 [GitHub 仓库 `main` 分支](https://github.com/memoio/agent_did_skill/tree/main)安装：
+Agent 所在设备需要 Node.js 22.5.0 或更新版本、终端和系统密钥库。Skill 的唯一代码来源是 [memoio/agent_did_skill](https://github.com/memoio/agent_did_skill)。支持 Skills 的宿主可安装固定版本，再准备运行依赖并只读核对平台配置：
 
 ```sh
-git clone --branch main --single-branch https://github.com/memoio/agent_did_skill.git
+npx skills add memoio/agent_did_skill@v0.2.3 --skill memo-agent-did-opbnb-testnet -g
+cd ~/.agents/skills/memo-agent-did-opbnb-testnet
+node scripts/setup-runtime.mjs
+node bin/memo-agent-opbnb-testnet config check
+```
+
+`skills add` 只安装 Skill 文件，不会运行 npm 依赖安装；`setup-runtime.mjs` 负责执行锁定依赖的 `npm ci --omit=dev --ignore-scripts`。安装目标若不是 `~/.agents/skills`，请在实际安装目录运行最后两条命令。Agent 应自行完成这些步骤，用户只需交付 Invitation 文件并发送 Console 提供的短指令。
+
+不使用 Skills 的宿主可通过 GitHub 安装器完成文件复制与依赖安装：
+
+```sh
+git clone --branch v0.2.3 --single-branch https://github.com/memoio/agent_did_skill.git
 cd agent_did_skill
 node scripts/install.mjs --target agent-user
 ```
@@ -26,11 +37,11 @@ node scripts/install.mjs --target runtime --dest "/absolute/path/to/agent/skills
 | Codex / Claude | `codex-user`、`codex-project` / `claude-user`、`claude-project` | 使用各自的已知 Skill 目录 |
 | DeepSeek、WorkBuddy 或其他自定义宿主 | `runtime --dest <宿主可读的绝对目录>` | 让宿主显式读取该目录的 `SKILL.md`，并在同一机器上运行 CLI |
 
-支持 `npx skills` 的宿主也可使用 `npx skills add memoio/agent_did_skill --skill memo-agent-did-opbnb-testnet -g`，然后在安装目录执行 `npm ci --omit=dev --ignore-scripts --no-audit --no-fund`。仓库中的 `agents/openai.yaml` 和 `.codex-plugin` 只是对应宿主的可选入口，其他 Agent 直接使用 `SKILL.md` 与 CLI。已有安装需显式加 `--upgrade`；旧程序目录会被备份。安装不会创建 DID 或发送交易。仅提供网页聊天、不能访问本机文件/终端/系统密钥库的 Agent，需要先连接可执行上述命令的本地运行环境。
+仓库中的 `agents/openai.yaml` 和 `.codex-plugin` 只是对应宿主的可选入口，其他 Agent 直接使用 `SKILL.md` 与 CLI。GitHub 安装器升级已有目录时需显式加 `--upgrade`；旧程序目录会被备份。安装与 `config check` 不会创建 DID 或发送交易。仅提供网页聊天、不能访问本机文件、终端或系统密钥库的 Agent，需要先连接具备这些能力的本地运行环境。
 
 给 Agent 的安装提示词（[Skill 的 GitHub 目录](https://github.com/memoio/agent_did_skill/tree/main/skills/memo-agent-did-opbnb-testnet)）：
 
-> 请在你实际运行、能访问终端和系统密钥库的机器上安装 `memo-agent-did-opbnb-testnet`。唯一来源是 `https://github.com/memoio/agent_did_skill.git` 的 `main` 分支，入口为 `skills/memo-agent-did-opbnb-testnet/SKILL.md`。未克隆时运行 `git clone --branch main --single-branch https://github.com/memoio/agent_did_skill.git`；已克隆时先更新到 `origin/main`。在仓库根目录执行 `node scripts/install.mjs --target agent-user`；如果你的宿主不读取 `~/.agents/skills`，改用 `--target runtime --dest <宿主可读的绝对目录>`。目标已存在时增加 `--upgrade`。安装后先运行 `agent list`；为全新 Agent 创建身份时运行 `agent init`，Skill 会自动生成 ID。请你保存并在后续命令中使用返回的 `agentId`，不要沿用另一 Agent 的 DID。初始化和上链注册是分开的步骤。完成后报告提交号、安装路径与本机公开平台配置核对结果。安装阶段不要创建 DID、Offer 或发送链上交易。
+> 请从 `https://github.com/memoio/agent_did_skill` 安装或更新 `memo-agent-did-opbnb-testnet`，阅读其 `SKILL.md` 并完成依赖准备与 `config check`。先检查本 Agent 是否已有身份；需要我确认注册资料时请暂停。只报告 Agent ID、DID 和当前状态，不展示凭据或密钥。Invitation 的实际文件名由管理系统自动写入交付给你的短指令。
 
 ## 连接平台
 
@@ -44,7 +55,7 @@ export MEMO_AGENT_OPBNB_DID_REGISTRY="<该部署的 DID Registry 地址>"
 export MEMO_AGENT_OPBNB_MANAGEMENT_REGISTRY="<该部署的 Management Registry 地址>"
 ```
 
-新安装默认连接上述 HTTPS 平台。已有安装不会自动更新；在原仓库执行 `git pull --ff-only origin main`，再用原安装目标执行 `node scripts/install.mjs --target agent-user --upgrade`（自定义目标继续使用原 `--target runtime --dest <绝对目录> --upgrade`）。已设置的 `MEMO_AGENT_OPBNB_*` 环境变量仍优先于内置值，需移除旧的本机覆盖或同时更新三项。运行 `node bin/memo-agent-opbnb-testnet config check` 可只读核对实际 API 与公开合约配置，不需要选择 Agent ID 或签名。升级不会迁移或替换各 Agent 的本机密钥库身份。
+新安装默认连接上述 HTTPS 平台。已有安装不会自动更新；Skills 安装应切换到新的固定版本并重新运行 `node scripts/setup-runtime.mjs`，GitHub 安装器应在新版本仓库中对原安装目标加 `--upgrade`。已设置的 `MEMO_AGENT_OPBNB_*` 环境变量仍优先于内置值，需移除旧的本机覆盖或同时更新三项。运行 `node bin/memo-agent-opbnb-testnet config check` 可只读核对实际 API 与公开合约配置，不需要选择 Agent ID 或签名。升级不会迁移或替换各 Agent 的本机密钥库身份。
 
 ## 创建 DID、注册及生成 Offer
 
